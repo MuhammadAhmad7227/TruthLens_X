@@ -42,8 +42,9 @@ AI assistance, excluding review latency. They are planning aids, not commitments
 
 | ID | Milestone | Scope in one line | Est. | Depends on | Status |
 |---|---|---|---|---|---|
-| **M0** | Architecture & docs | This documentation set + decisions register | 3 d | — | ✅ **Complete (this commit)** |
-| **M1** | Repository foundation | Monorepo scaffolding, tooling, CI, compose skeleton, config, logging, health | 5 d | M0 + approvals | ⬜ Not started |
+| **M0** | Architecture & docs | This documentation set + decisions register | 3 d | — | ✅ **Complete** (PR #1, merged) |
+| **M0.5** | Decision ratification | 23 ADRs, licence audit, AI architecture, backup/recovery, doc updates | 3 d | M0 | ✅ **Complete** |
+| **M1** | Repository foundation | Monorepo scaffolding, tooling, CI, compose skeleton, config, logging, health | 5 d | M0.5 | 🔵 **Approved — in progress** |
 | **M2** | Database & migrations | Alembic baseline, core schema, DB roles, seeds, repo layer | 5 d | M1 | ⬜ |
 | **M3** | Auth & RBAC | argon2id, JWT+refresh rotation, MFA, RBAC + case ACL, audit foundation | 7 d | M2 | ⬜ |
 | **M4** | Case management | Case CRUD, lifecycle, membership, dashboard, frontend case workspace | 6 d | M3 | ⬜ |
@@ -88,10 +89,16 @@ and error-prone.
 
 ## 3. Milestone detail
 
-### M1 — Repository foundation *(5 d)*
+### M1 — Repository foundation *(5 d)* — 🔵 **APPROVED SCOPE**
 
 **Goal:** an empty-but-real system: `docker compose up` yields a healthy API, frontend, Postgres,
 Redis, with CI green on an empty feature set.
+
+**Owner-specified M1 scope (binding):** monorepo structure · Next.js + TypeScript + Tailwind ·
+FastAPI on Python 3.11 · PostgreSQL and Redis configuration · Docker Compose services · environment
+variables and `.env.example` · GitHub Actions CI · linting, formatting and basic automated tests ·
+Alembic migration infrastructure · health-check endpoints · structured logging · secure development
+defaults · updated README and development documentation.
 
 | Task | Deliverable |
 |---|---|
@@ -507,18 +514,29 @@ the custody ledger, and the job/result contract.
 
 ---
 
-## 5. Approval gates
+## 5. Approval gates — **ALL CLEARED 2026-11-10**
 
-These milestones **cannot start** until the linked decision is approved (see [DECISIONS.md](./DECISIONS.md)):
+Every gate was resolved by the owner's ratification. Each is now an accepted ADR in
+[docs/adr/](./adr/README.md); the full log with conditions is in [DECISIONS.md §3](./DECISIONS.md).
 
-| Milestone | Blocked by | Question |
-|---|---|---|
-| M1 | D-001, D-002, D-003 | Is the default permissive stack acceptable, or must AGPL/GPL components be enabled? |
-| M1 | D-005, D-008 | Deployment target (compose single-host vs cloud/K8s) and repo licence |
-| M2 | D-004, D-009 | Single-tenant v1 confirmation; UUIDv4 vs UUIDv7 |
-| M5 | D-006 | Envelope encryption of originals on/off |
-| M13 | D-001 | Detector choice (this is the milestone where it actually binds) |
-| M17 | D-007 | Local LLM vs external API |
+| Milestone | Was blocked by | Resolution | ADR |
+|---|---|---|---|
+| M1 | D-001, D-002, D-003 | ✅ Permissive-by-default set; pikepdf for PDF; ExifTool optional and subprocess-isolated; AGPL behind `ENABLE_*` flags that are never on by default | 0001, 0002, 0003 |
+| M1 | D-005, D-008 | ✅ Single on-prem host with Docker Compose, **no Kubernetes in v1**; repository **remains unlicensed** (no `LICENSE` file) | 0005, 0008 |
+| M2 | D-004, D-009 | ✅ Single organisation with named-capability RBAC and a tenancy-ready-but-inert `organisation_id`; UUIDv7 for append-only tables, UUIDv4 elsewhere; **no `tenant_id`, no RLS, no per-tenant keys/quotas** | 0004, 0009, 0010 |
+| M5 | D-006 | ✅ **LUKS2 full-volume encryption**; application-level envelope encryption **not implemented in v1** | 0006 |
+| M8 | D-015 | ✅ Offline gazetteer **disabled by default** until the dataset licence (L-7) is verified | 0015 |
+| M13 | D-001 | ✅ torchvision default (YOLOX as documented fallback); **ship no detection weights** — the operator registers weights they are licensed for; MIT ByteTrack logic ported in-tree; no third-party ALPR weights; no registry lookups | 0001, 0013 |
+| M14 | *(emerged from the licence audit)* | ✅ **Weight-free classical indicators only** — published deepfake detectors and their datasets (FaceForensics++, DFDC) are research/non-commercial licensed | 0023 |
+| M17 | D-007 | ✅ Local-first (Ollama; vLLM future-compatible); external behind `ENABLE_EXTERNAL_AI` + admin grant + per-request confirmation; **no automatic cloud fallback** | 0007, 0021 |
+| all | *(emerged)* | ✅ Redis pinned to **7.2** (BSD-3); upgrading is a licence event | 0022 |
+
+**Open legal items that gate specific milestones** (not architecture decisions — see
+THIRD_PARTY_LICENSE_AUDIT §10): **L-1** ExifTool licence election (M8) · **L-2** COCO-pretrained
+weight terms (M13) · **L-3** EasyOCR weight licence (M10/M13) · **L-5** face-detector weights (M9) ·
+**L-6** diarisation weights (M11) · **L-7** gazetteer dataset licence (M8) · **L-11** report font
+licences (M18). Where an item is unresolved, the milestone ships the conservative path and the
+capability is flag-gated — **it is never shipped with an unverified artefact**.
 
 ---
 
@@ -552,9 +570,21 @@ excluded on privacy grounds) · hardware HSM integration · cross-organisation e
 
 | Milestone | Status | Completed | Commit / PR | Notes |
 |---|---|---|---|---|
-| M0 — Architecture & docs | ✅ Complete | 2026-11-10 | *(this commit)* | 9 docs + decisions register; awaiting approval of D-001..D-012 |
-| M1 — Repository foundation | ⬜ Not started | — | — | Blocked on approvals |
-| M2 … M21 | ⬜ Not started | — | — | — |
+| M0 — Architecture & docs | ✅ Complete | 2026-11-10 | `58a9031` · PR #1 (merged) | 9 documents; decisions D-001…D-020 raised |
+| M0.5 — Decision ratification | ✅ Complete | 2026-11-10 | *(this commit)* | **23 ADRs** + `THIRD_PARTY_LICENSE_AUDIT.md` + `AI_ARCHITECTURE.md` + `BACKUP_RECOVERY.md`; all 8 blocking decisions cleared; **3 conflicts flagged and resolved in favour of the explicit instruction** |
+| M1 — Repository foundation | 🔵 Approved, in progress | — | — | Owner-approved scope; stops for review before M2 |
+| M2 … M21 | ⬜ Not started | — | — | All approval gates cleared; gated only by legal items L-1…L-11 for specific artefacts |
+
+### M1 restrictions carried forward from the approval (binding)
+
+- Do **not** implement forensic AI modules.
+- Do **not** add unapproved AGPL dependencies.
+- Do **not** create fake or placeholder features presented as completed.
+- Do **not** commit secrets or real evidence files.
+- Run available checks and tests **before** declaring M1 complete.
+- Review the git diff **before** committing.
+- Report created files, commands executed, test results, unresolved issues and the commit hash.
+- **Stop after M1 and request review before starting M2.**
 
 ---
 

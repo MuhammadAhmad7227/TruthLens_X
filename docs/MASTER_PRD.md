@@ -76,8 +76,9 @@ Priority: **M** = Must (v1), **S** = Should (v1 if schedule allows), **C** = Cou
 | AUTH-01 | Email/username + password login issuing a short-lived JWT access token (≤15 min) and a rotating refresh token (≤12 h, httpOnly, `Secure`, `SameSite=Strict`, path-scoped). | M |
 | AUTH-02 | Passwords hashed with **argon2id** (RFC 9106 low-memory parameters); legacy bcrypt hashes verified and transparently upgraded on successful login. | M |
 | AUTH-03 | Password policy: ≥12 chars, breach-list check optional, per-account lockout after N failures with exponential backoff, and admin-unlock path. | M |
-| AUTH-04 | Role-based access control with the six roles in §2, plus **case-level membership** (`case_role`) granting least-privilege scoping. | M |
-| AUTH-05 | Every protected route enforces both global role *and* case membership in a single dependency (`require_case_access`). Deny-by-default. | M |
+| AUTH-04 | Role-based access control with the six roles in §2, plus **case-level membership** (`case_role`) granting least-privilege scoping, expressed as **named capabilities** (`view_case`, `edit_case`, `upload_evidence`, `view_evidence`, `view_evidence_content`, `analyze_evidence`, `verify_finding`, `export_reports`, `manage_members`, `delete_evidence`, …). The vocabulary is data (`capabilities` + `rbac_matrix`), not hardcoded role strings. **ADR-0004**. | M |
+| AUTH-05 | Every protected route enforces both global role *and* case membership *and* the named capability in a single dependency (`require_case_access(case_id, capability)`). Deny-by-default. **Frontend visibility is never a security control** — the server re-evaluates every request, and a CI test asserts 100% of routes declare their required capability. | M |
+| AUTH-04b | Single organisation in v1. **No `tenant_id`, no PostgreSQL RLS, no per-tenant keys, no tenant quotas.** The schema is tenancy-ready via an inert `cases.organisation_id` so multi-tenancy is additive later. **ADR-0004, ADR-0010**. | M |
 | AUTH-06 | Session revocation list (Redis-backed `jti` denylist) supporting logout, admin force-logout, and automatic revocation on password change. | M |
 | AUTH-07 | Optional TOTP two-factor enrolment and enforcement (per-role policy, e.g. mandatory for `admin` and `lead_investigator`). | S |
 | AUTH-08 | Audit every authentication event: success, failure reason, MFA challenge, token refresh, logout, lockout. | M |
@@ -213,7 +214,8 @@ Priority: **M** = Must (v1), **S** = Should (v1 if schedule allows), **C** = Cou
 | DF-06 | Aggregate indicator set into a single **advisory score** (0–100) with a mandatory confidence interval and an explicit `requires_human_verification = true` flag that cannot be disabled. | M |
 | DF-07 | Every deepfake result ships with a fixed disclaimer string rendered in the UI *and* in the PDF report. | M |
 | DF-08 | Record model name, version, weights checksum, framework version, GPU/CPU execution device, inference parameters, and seed where applicable — for every single invocation. | M |
-| DF-09 | Maintain a labelled internal evaluation set so the platform can report its **own measured performance** (TPR/FPR on that set) rather than quoting vendor marketing numbers. | S |
+| DF-09 | Maintain a labelled internal evaluation set so the platform can report its **own measured performance** (TPR/FPR on that set) rather than quoting vendor marketing numbers. The set must be synthetic or self-generated — **no third-party-copyrighted media, no real personal data**. | S |
+| DF-09b | **v1 ships no third-party deepfake detection weights.** Published detectors and their training datasets (FaceForensics++, Celeb-DF, DFDC) are research/non-commercial licensed, so the module is implemented as weight-free classical signal-processing indicators. Any learned detector added later requires a verified permissive weight licence plus its own ADR. **ADR-0023**. | M |
 | DF-10 | Support "known-source" whitelisting: media from a verified camera/publisher can be marked with provenance signals (e.g. C2PA manifest if present) which are reported factually. | C |
 
 ### Module 12 — Object detection & tracking
@@ -281,7 +283,11 @@ Priority: **M** = Must (v1), **S** = Should (v1 if schedule allows), **C** = Cou
 | AI-03 | Assistant **cannot** set verification status, cannot alter custody records, and cannot delete anything. It can propose next investigative steps, which an analyst must accept explicitly. | M |
 | AI-04 | Prompt + retrieval context + model + version + temperature + token counts logged for every interaction (reproducibility and audit). | M |
 | AI-05 | Fixed system-prompt guardrails: no guilt/innocence conclusions, no legal advice, no fabrication of evidence, mandatory uncertainty language. | M |
-| AI-06 | Local/self-hosted model support (e.g. an Ollama/vLLM endpoint) as the default deployment mode; external API providers opt-in per deployment because case data is sensitive. | M |
+| AI-06 | **Local-first**: a provider-independent adapter with Ollama as the shipped local provider and vLLM future-compatible. External providers are **disabled by default** behind `ENABLE_EXTERNAL_AI=false`; activation requires an administrator action with justification, an expiry (≤30 days), disclosure acknowledgement and case-lead notification. Full specification: **[AI_ARCHITECTURE.md](./AI_ARCHITECTURE.md)**, **ADR-0007**. | M |
+| AI-06b | A per-request **confirmation step** shows exactly what would leave the host (provider, data categories, char count, redactions applied) before any external transmission. Server-enforced via a bound, expiring token. **ADR-0021**. | M |
+| AI-06c | **No automatic cloud fallback.** A failing local provider returns `ASSISTANT_UNAVAILABLE` with `fallback_attempted: false`; no fallback code path exists. **ADR-0021**. | M |
+| AI-06d | An administrator **kill switch** at three levels (application flag, token revocation, host egress rule). **ADR-0007/0021**. | M |
+| AI-06e | Original evidence bytes, derivative media, complete case records, full metadata dumps, GPS coordinates, plate values and biometric embeddings are **never transmittable** under any configuration. **ADR-0021**. | M |
 | AI-07 | Suggested-action generation ("run ELA on the 4 images lacking it", "3 findings await verification") derived from real queryable state, not free-form invention. | S |
 | AI-08 | Full conversation persistence per case, exportable, with a per-message "regenerate with citation view". | S |
 

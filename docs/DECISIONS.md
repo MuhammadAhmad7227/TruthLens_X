@@ -3,17 +3,35 @@
 | | |
 |---|---|
 | **Document ID** | TLX-DOC-009 |
-| **Version** | 0.1.0 |
+| **Version** | 2.0.0 |
 | **Last updated** | 2026-11-10 |
-| **Purpose** | Every architectural assumption made while writing the M0 documentation set, listed for **explicit approval**. Nothing below is implemented yet. |
+| **Status** | **RATIFIED** — D-001…D-020 were decided by the project owner on 2026-11-10. Each is now an accepted ADR in [adr/](./adr/README.md). |
+| **Purpose** | The historical record of every architectural assumption raised during M0, the owner's decision, and the ADR that implements it. |
 
-This is the document to read if you only read one. Each entry states what I assumed, why, what
-changes if you disagree, and which milestones it blocks.
-
-**How to respond:** reply with the decision IDs and your choice, e.g.
-`D-001: B, D-002: A, D-006: off, D-007: local, everything else as proposed`.
-Unanswered items default to the **proposed** column at the start of M1, and each default is
-recorded in an ADR so it can be reversed later with a paper trail.
+> ## ✅ ALL 20 DECISIONS ARE NOW RATIFIED
+>
+> On 2026-11-10 the project owner approved D-001…D-008 with **detailed attached conditions**, and
+> approved the proposed defaults for D-009…D-020 *"provided they are consistent with our previously
+> approved architecture decisions."* Every decision is recorded as an individual ADR in
+> [docs/adr/](./adr/README.md) with alternatives, rationale, consequences, licensing implications,
+> security implications and a reversal strategy.
+>
+> **Three conflicts between a proposed default and an explicit instruction were found and flagged**,
+> as required. All three were resolved **in favour of the explicit instruction**:
+>
+> | Decision | Proposed default | Explicit instruction | Resolution |
+> |---|---|---|---|
+> | D-010 | Add PostgreSQL RLS in M20 as optional hardening | D-004 condition: do **not** implement RLS in v1 (which includes M20) | **RLS excluded from v1 entirely** → [ADR-0010](./adr/ADR-0010-no-row-level-security-in-v1.md) |
+> | D-011 | Write the S3 adapter now, disabled | D-005 condition 13: keep interfaces modular so S3 *can be introduced later* | **Interface only; no S3 implementation** (avoids shipping untested code) → [ADR-0011](./adr/ADR-0011-storage-backend-interface-filesystem-only.md) |
+> | D-015 | Offline GeoNames gazetteer enabled by default | Licence-audit condition: verify artefact licences separately, never claim compliance without an audit | **Default changed to disabled** — dataset licence (L-7) unverifiable from an allowed host → [ADR-0015](./adr/ADR-0015-offline-gazetteer-default-disabled.md) |
+>
+> Two further decisions emerged **from** the licence audit and are recorded as ADRs in their own
+> right: **ADR-0022** (pin Redis 7.2 — Redis 8 changed licence) and **ADR-0023** (deepfake detector
+> weights and their training datasets are research/non-commercial licensed, so M14 ships weight-free
+> classical indicators instead).
+>
+> The original proposal text for each decision is retained below **unchanged**, so the reasoning that
+> led to each outcome remains auditable. Only the decision log in §3 records the outcome.
 
 Legend: 🔴 blocks a milestone · 🟡 affects design but not blocking · 🟢 informational
 
@@ -244,32 +262,55 @@ legal retention requirement. Affects M2 seeds and M19.
 
 ---
 
-## Decision log (filled in as you approve)
+## 3. Decision log — RATIFIED 2026-11-10
 
-| ID | Question | Proposed | **Decision** | Decided by | Date | ADR |
-|---|---|---|---|---|---|---|
-| D-001 | Detector licence | A (permissive default + flag) | *pending* | | | |
-| D-002 | PDF library | A (pikepdf/MPL + flag) | *pending* | | | |
-| D-003 | ExifTool | A (subprocess + fallback) | *pending* | | | |
-| D-004 | Multi-tenancy | A (single-org v1) | *pending* | | | |
-| D-005 | Deployment target | A (single-host compose) | *pending* | | | |
-| D-006 | Encryption at rest | A (disk-level only) | *pending* | | | |
-| D-007 | Assistant model | A (local default) | *pending* | | | |
-| D-008 | Repo licence | B (none yet, gate on) | *pending* | | | |
-| D-009 | PK strategy | UUIDv7 for append-only tables | *pending* | | | |
-| D-010 | Postgres RLS | Defer to M20 | *pending* | | | |
-| D-011 | S3 adapter | Interface now, disabled | *pending* | | | |
-| D-012 | Data residency | On-prem, no egress | *pending* | | | |
-| D-013 | Plate formats | Examples only, you review | *pending* | | | |
-| D-014 | ClamAV | Included, disabled | *pending* | | | |
-| D-015 | Gazetteer | Offline subset | *pending* | | | |
-| D-016 | UI components | Radix + vendored | *pending* | | | |
-| D-017 | ASR engine | faster-whisper default | *pending* | | | |
-| D-018 | MFA scope | Mandatory admin+lead | *pending* | | | |
-| D-019 | Report signing | Hash in v1, crypto optional | *pending* | | | |
-| D-020 | Retention default | You specify the statutory period | *pending* | | | |
+| ID | Question | Proposed | **Decision** | Conditions | ADR |
+|---|---|---|---|---|---|
+| D-001 | Detector / dependency licences | A (permissive default + flags) | ✅ **A — permissive defaults + audited flags** | 12 conditions: no Ultralytics/PyMuPDF in defaults; individually verified permissive CV; pikepdf for PDF; ExifTool optional; `ENABLE_*` flags; never AGPL by default; create `THIRD_PARTY_LICENSE_AUDIT.md`; full dependency inventory; **audit weights/datasets/checkpoints/binaries separately**; no `LICENSE` file; no silent substitution; no compliance claims without an audit | [ADR-0001](./adr/ADR-0001-permissive-default-dependency-set.md) |
+| D-002 | PDF library | A (pikepdf/MPL + flag) | ✅ **A — pikepdf initially**; PyMuPDF flag-gated | per D-001 | [ADR-0002](./adr/ADR-0002-pikepdf-pdf-engine.md) |
+| D-003 | ExifTool | A (subprocess + fallback) | ✅ **A — optional, subprocess-isolated**; document Artistic/GPL dual licensing, distribution requirements, deployment considerations | Legal item **L-1** open | [ADR-0003](./adr/ADR-0003-exiftool-optional-subprocess.md) |
+| D-004 | Multi-tenancy | A (single-org v1) | ✅ **A — single organisation** | 10 conditions: named capabilities (`view_case`, `edit_case`, `upload_evidence`, `view_evidence`, `analyze_evidence`, `export_reports`, `manage_members`, `delete_evidence`, …); enforce on **every** endpoint and download; never rely on frontend visibility; immutable-style audit; **design for later tenancy without a rewrite**; no `tenant_id`, no RLS, no per-tenant keys/quotas | [ADR-0004](./adr/ADR-0004-single-organisation-capability-rbac.md) |
+| D-005 | Deployment target | A (single-host compose) | ✅ **A — single on-prem host, Docker Compose** | 15 conditions: private evidence volume; separate derivatives; **never expose evidence via public URLs**; persistent volumes; SHA-256 + verification; **automated encrypted backups**; documented restore/DR; TLS+firewall+SSH hardening+secret mgmt; healthchecks/logs/limits/restart policies; jobs must not block the API; **honest availability limits**; modular storage interfaces; **no Kubernetes in v1**; complete deployment guide | [ADR-0005](./adr/ADR-0005-single-host-docker-compose.md) |
+| D-006 | Encryption at rest | A (disk-level only) | ✅ **A — LUKS2 full-volume encryption**; **no app-level envelope encryption in v1** | 12 conditions: LUKS2 for evidence/Postgres/backups; never a public web dir; documented boot unlock + admin access; recovery-key custody; **never store keys in GitHub/source/images/ordinary env files**; Linux permissions; **document that volume encryption does not protect an unlocked running server**; **document backup encryption separately**; deployment verification that the encrypted volume is mounted before start | [ADR-0006](./adr/ADR-0006-luks2-volume-encryption.md) |
+| D-007 | Assistant model | A (local default) | ✅ **C — local default, external behind audited admin opt-in** | 18 conditions: provider-independent adapter; Ollama first, vLLM future-compatible; external off by default; `ENABLE_EXTERNAL_AI=false`; admin action to activate; audit provider/model/actor/time/case/**data categories**/purpose; never send originals, full records or sensitive metadata; **confirmation step before transmission**; redaction; server-side keys only; **frontend must never see keys**; distinguish AI output from verified findings; require evidence references; state uncertainty, never invent; log model/version/provider/**prompt template version**; **admin kill switch**; **never auto-fallback to cloud** | [ADR-0007](./adr/ADR-0007-local-first-ai-assistant.md), [ADR-0021](./adr/ADR-0021-ai-egress-minimisation-no-fallback.md) |
+| D-008 | Repo licence | B (none yet, gate on) | ✅ **B — repository remains unlicensed**; no `LICENSE` file; no open-source claim | Tracked as legal item **L-10** | [ADR-0008](./adr/ADR-0008-repository-remains-unlicensed.md) |
+| D-009 | PK strategy | UUIDv7 for append-only tables | ✅ **As proposed** — UUIDv7 for high-volume append-only tables, UUIDv4 elsewhere | consistent with D-004/D-005 | [ADR-0009](./adr/ADR-0009-uuid-primary-keys.md) |
+| D-010 | Postgres RLS | Defer to M20 | ⚠️ **Changed — NOT implemented in v1 at all**, including M20 | D-004 explicitly prohibits RLS in v1; four compensating controls specified | [ADR-0010](./adr/ADR-0010-no-row-level-security-in-v1.md) |
+| D-011 | S3 adapter | Interface now, disabled | ⚠️ **Refined — interface + filesystem implementation only**; no S3 code in v1 | Avoids shipping untested code ("no placeholder features presented as completed") | [ADR-0011](./adr/ADR-0011-storage-backend-interface-filesystem-only.md) |
+| D-012 | Data residency | On-prem, no egress | ✅ **As proposed** — all external egress disabled by default, master switch `ENABLE_EXTERNAL_ENRICHMENT` | One approved exception: AV definition updates (separately gated, never transmits evidence) | [ADR-0012](./adr/ADR-0012-data-residency-no-egress-by-default.md) |
+| D-013 | Plate formats | Examples only, you review | ✅ **As proposed** — `is_example=true` rows only, `ALPR_JURISDICTION` has no default, `unresolved_format` never coerced, **no registry lookup** (hard-disabled) | no third-party ALPR weights shipped | [ADR-0013](./adr/ADR-0013-alpr-no-default-formats-no-registry.md) |
+| D-014 | ClamAV | Included, disabled | ✅ **As proposed** — `ENABLE_AV_SCAN=false`; GPL-2.0 component off by default; socket-isolated when on | consistent with ADR-0001 | [ADR-0014](./adr/ADR-0014-clamav-included-disabled.md) |
+| D-015 | Gazetteer | Offline subset | ⚠️ **Changed — supported but DISABLED by default** until the dataset licence (L-7) is verified | Location intelligence is fully functional without place names | [ADR-0015](./adr/ADR-0015-offline-gazetteer-default-disabled.md) |
+| D-016 | UI components | Radix + vendored | ✅ **As proposed** — Radix MIT + Tailwind MIT, vendored in-tree components, zero copyleft in the frontend | SVG rendering disabled; `dangerouslySetInnerHTML` banned by lint | [ADR-0016](./adr/ADR-0016-radix-vendored-ui-components.md) |
+| D-017 | ASR engine | faster-whisper default | ✅ **As proposed** — faster-whisper (MIT) default, openai-whisper (MIT) available | **Both code and weights verified MIT** — the cleanest position in the stack | [ADR-0017](./adr/ADR-0017-faster-whisper-default-asr.md) |
+| D-018 | MFA scope | Mandatory admin+lead | ✅ **As proposed** — TOTP mandatory for `admin` and `lead_investigator`, optional elsewhere | WebAuthn deferred to v2 | [ADR-0018](./adr/ADR-0018-mfa-mandatory-admin-lead.md) |
+| D-019 | Report signing | Hash in v1, crypto optional | ✅ **As proposed** — manifest + manifest hash + PDF SHA-256 always on; cryptographic signing optional/off | Fonts must be embeddable and redistributable (**L-11**) | [ADR-0019](./adr/ADR-0019-report-hash-v1-crypto-signing-optional.md) |
+| D-020 | Retention default | You specify the statutory period | ✅ **As proposed** — `RETENTION_STATUTORY_DAYS` has **no default**; until set, retention jobs delete nothing; audit logs never deleted in v1 | Hard deletion of an original needs admin + justification + a second approver | [ADR-0020](./adr/ADR-0020-retention-defaults-operator-specified.md) |
+| — | *emerged from the licence audit* | — | ✅ **Redis pinned to 7.2 (BSD-3)**; upgrading is a licence event, Valkey is the fallback path | CI gate fails on `redis:8*` / `redis:7.3*` | [ADR-0022](./adr/ADR-0022-redis-72-version-pin.md) |
+| — | *emerged from the licence audit* | — | ✅ **M14 deepfake analysis ships weight-free classical indicators** — published detectors and their datasets (FaceForensics++, DFDC) are research/non-commercial licensed | Any learned detector later needs a verified weight licence + its own ADR | [ADR-0023](./adr/ADR-0023-weight-free-deepfake-indicators.md) |
+
+### Owner's standing instructions for M1 (recorded verbatim in intent)
+
+1. Record D-001…D-020 as individual ADRs including decision, alternatives, rationale, consequences,
+   licensing implications, security implications and reversal strategy. → **Done: 23 ADRs.**
+2. Do not silently change any previously approved decision. → **Complied; all three conflicts flagged above.**
+3. Ensure all 20 decisions appear in the architecture documentation. → **Cross-referenced from
+   SYSTEM_ARCHITECTURE, DATABASE_DESIGN, API_SPECIFICATION, SECURITY_ARCHITECTURE,
+   DEPLOYMENT_GUIDE, BACKUP_RECOVERY, AI_ARCHITECTURE and THIRD_PARTY_LICENSE_AUDIT.**
+4. Flag any conflict between a proposed default and an approved decision before proceeding. → **Three flagged, all resolved in favour of the explicit instruction.**
+
+### Restrictions on M1 implementation
+
+- Do **not** implement forensic AI modules yet.
+- Do **not** add unapproved AGPL dependencies.
+- Do **not** create fake or placeholder features presented as completed.
+- Do **not** commit secrets or real evidence files.
+- Run available checks and tests before declaring M1 complete.
+- Review the git diff before committing.
+- Report all created files, commands executed, test results, unresolved issues and the commit hash.
+- **Stop after M1 and request review before starting M2.**
 
 ---
 
-*End of DECISIONS.md. Once you respond, each decision becomes `docs/adr/ADR-000N-*.md` in M1 and the
-roadmap status board unblocks.*
+*End of DECISIONS.md v2.0.0 — all decisions ratified. The proposal text in §1–§2 is retained as the
+historical record; §3 is the authoritative outcome.*

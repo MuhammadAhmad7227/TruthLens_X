@@ -120,7 +120,7 @@ flowchart TB
 | `worker-gpu` | `nvidia/cuda:12.x-runtime` + PyTorch | Detection, tracking, ALPR, OCR, Whisper, deepfake indicators, embeddings. | Never writes originals; only derivatives + DB rows. |
 | `beat` | same as `worker-cpu` | Scheduled jobs: integrity sweep, hash-chain verification, retention, vector reindex, queue-health metrics. | No ad-hoc user work. |
 | `postgres` | `pgvector/pgvector:pg16` | System of record. | No blob storage beyond small artifacts. |
-| `redis` | `redis:7-alpine` | Broker, cache, rate-limit counters, token denylist, distributed locks. | **Never** the sole store for anything that must survive — task *results* are mirrored to Postgres. |
+| `redis` | **`redis:7.2-alpine`** digest-pinned (BSD-3; see ADR-0022) | Broker, cache, rate-limit counters, token denylist, distributed locks. | **Never** the sole store for anything that must survive — task *results* live in Postgres. Do **not** bump to Redis 8: its licence changed (RSALv2/SSPLv1, AGPLv3 option). |
 | `nginx` | `nginx:1.27-alpine` | TLS, security headers, request-size cap, coarse rate limiting, static asset caching. | No auth logic. |
 
 **Why the API image excludes AI weights:** a PyTorch + weights image is routinely 5–10 GB. Keeping
@@ -226,7 +226,7 @@ TruthLens_X/
 │   ├── nginx/                     # tls.conf, security-headers.conf, site.conf
 │   ├── postgres/                  # initdb: roles, least-privilege grants, extensions
 │   ├── scripts/                   # backup.sh, restore.sh, integrity-sweep.sh, seed-dev.sh
-│   └── k8s/                       # Helm chart (phase 2, after compose is proven)
+│   └── (no k8s/ — Kubernetes is out of v1 scope per ADR-0005)
 ├── tools/
 │   ├── fixtures/                  # synthetic evidence generator (tiny files, no big binaries in git)
 │   ├── openapi/                   # export + type generation script
@@ -566,8 +566,9 @@ Rationale: forensic deployments are frequently on-prem/air-gapped-sensitive; com
 portable, and has no cluster control plane to secure. GPU support via the
 `docker-compose.gpu.yml` override + NVIDIA Container Toolkit.
 
-**Phase 2 (post-v1, only if needed): Kubernetes + Helm.** Same images, same env contract. The
-`infra/k8s/` directory is scaffolded but not the v1 delivery target — see DEPLOYMENT_GUIDE §9.
+**Kubernetes is explicitly OUT of v1** (approved decision D-005 condition 14, ADR-0005). The
+`infra/k8s/` directory is **not created**. The K8s path remains a documented phase-2 option only —
+see DEPLOYMENT_GUIDE §9 and ADR-0005 §Reversal strategy for what it would take.
 
 **Sandbox/development note:** this workspace has no Docker daemon, so compose files will be
 validated by CI (`docker compose config` + a full E2E stack) rather than locally during

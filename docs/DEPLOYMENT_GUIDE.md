@@ -92,7 +92,7 @@ Other host requirements:
 | `worker-gpu` | `truthlens/worker-gpu:<git-sha>` | `infra/docker/worker-gpu.Dockerfile` (`nvidia/cuda:12.x-runtime-ubuntu22.04`) | + PyTorch, detection/OCR/ASR/whisper |
 | `beat` | same as `worker-cpu` | — | Scheduled jobs only |
 | `postgres` | `pgvector/pgvector:pg16` **digest-pinned** | `infra/postgres/initdb/` | Roles, grants, extensions, partition bootstrap |
-| `redis` | `redis:7-alpine` **digest-pinned** | config only | AOF on for broker durability; `maxmemory-policy noeviction` (**never** evict broker messages) |
+| `redis` | **`redis:7.2-alpine`** digest-pinned | config only | AOF on for broker durability; `maxmemory-policy noeviction` (**never** evict broker messages). ⚠️ **Do not bump to Redis 8** — its licence changed (RSALv2/SSPLv1 + AGPLv3 option). A CI gate fails on `redis:8*`/`redis:7.3*`. See **ADR-0022**; the fallback path is Valkey (BSD-3). |
 | `clamav` (optional) | `clamav/clamav` | — | Disabled by default; flag `ENABLE_AV_SCAN` |
 
 Image hygiene: no `latest` tags anywhere; images tagged by git SHA and by semver; base images
@@ -354,9 +354,28 @@ Complete every item before go-live. Each maps to a control in SECURITY_ARCHITECT
 
 ---
 
-## 9. Kubernetes path (phase 2 — scaffolded, not the v1 target)
+## 9. Kubernetes — **explicitly out of scope for v1** (ADR-0005)
 
-`infra/k8s/` will contain a Helm chart mirroring the compose topology:
+Per approved decision D-005 condition 14, **Kubernetes is not used in v1 and `infra/k8s/` is not
+created.** The table below is retained only as a documented phase-2 option, so that the reversal cost
+is known in advance. Pursue it only when a single host is genuinely the bottleneck:
+
+| Concern | Compose (v1) | Kubernetes (phase 2, not built) |
+|---|---|---|
+| Ingress/TLS | nginx container | Ingress-NGINX / cert-manager |
+| API | `--scale api=N` | Deployment + HPA |
+| Workers | one service per queue | Deployment per queue; GPU via `nvidia.com/gpu`; KEDA on queue depth |
+| Secrets | Docker secrets / systemd credentials | Sealed Secrets / External Secrets + KMS |
+| Storage | LUKS2 host volume + bind mounts | CSI; `ReadOnlyMany` for originals |
+| Postgres/Redis | containers on the encrypted volume | External managed instances recommended |
+| Migrations | `docker compose exec` | Pre-upgrade Job |
+
+Reversal estimate and full strategy: **ADR-0005 §Reversal strategy** (~10 days; no application code
+change). Note that K8s would also change the encryption-at-rest story: LUKS2 (ADR-0006) would be
+complemented or replaced by CSI volume encryption, requiring its own ADR.
+
+For an on-prem forensic unit the compose deployment is not a compromise — it is usually the *correct*
+choice: fewer moving parts, easier to audit, and easier to describe to a court as a defined system.
 
 | Concern | Compose | Kubernetes |
 |---|---|---|
@@ -374,6 +393,37 @@ Only pursue this when a single host is genuinely the bottleneck. The compose dep
 audit, easier to hand to a court as a described system.
 
 ---
+
+## 9b. Encryption at rest — LUKS2 (ADR-0006)
+
+The host evidence volume, PostgreSQL data directory, Redis persistence and backup staging all live on
+a **LUKS2-encrypted** volume. Provisioning, boot-time unlocking modes, key custody (three slots, two
+independent custodians), rotation, and the loss-recovery procedure are specified in
+**[BACKUP_RECOVERY.md](./BACKUP_RECOVERY.md)** §3 and §5.
+
+Two points that must not be lost:
+
+1. **Volume encryption protects data at rest only.** It does **not** protect against an attacker with
+   access to an already-unlocked, running server. Those threats are handled by write-once storage,
+   read-only mounts, capability-based RBAC, hash-chained audit and integrity sweeps.
+2. **Backup encryption is separate.** A file copied out of an unlocked LUKS volume is **plaintext**.
+   Backups are encrypted by the backup tool (restic AES-256/Poly1305) under a key **distinct** from
+   the LUKS keys. See BACKUP_RECOVERY §6.1.
+
+Application-level envelope encryption is **not implemented in v1**. `EVIDENCE_ENCRYPTION` must remain
+`disabled`; setting it to `aes256gcm_envelope` fails startup.
+
+## 9c. Deployment preflight — blocks application start
+
+`truthlens-preflight.service` runs `verify-encrypted-mount.sh` **before** `docker compose up` and
+fails closed. It verifies: the LUKS2 target exists and is type LUKS2; it is mounted at
+`/srv/truthlens`; `/srv/truthlens` really is on `/dev/mapper/tlxdata` (not the root device); the
+filesystem and mount options are as expected; `originals/` is `0550` and `postgres/` is `0700`; no
+LUKS/restic key material exists on the volume or in the repo; **no nginx `root`/`alias` references the
+evidence volume**; ≥ 50 GB free; NTP is synchronised; and the `auditd` rules are loaded.
+
+The full script is in BACKUP_RECOVERY §8. The same checks are exposed at
+`GET /api/v1/admin/deployment/verify` and contribute to `/readyz`.
 
 ## 10. Operations
 
