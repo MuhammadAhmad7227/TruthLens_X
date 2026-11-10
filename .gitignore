@@ -1,0 +1,181 @@
+# ─────────────────────────────────────────────────────────────
+# TruthLens X — .gitignore
+# Rule: nothing secret, nothing large, nothing generated.
+# Evidence files and model weights must NEVER be committed.
+# ─────────────────────────────────────────────────────────────
+
+# ── Secrets & environment ────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+*.keystore
+secrets/
+credentials.json
+**/run/secrets/
+
+# ── Evidence & forensic data (NEVER commit) ──────────────────
+evidence/
+/evidence_store/
+originals/
+derivatives/
+intake/
+quarantine/
+*.e01
+*.dd
+*.img
+*.raw
+*.aff
+*.001
+
+# ── Model weights (pinned via models.lock.json, fetched at build) ──
+models/
+ai_services/models/
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.gguf
+*.bin
+*.tflite
+*.pb
+!tools/fixtures/**/*.bin
+
+# ── Media / large binary artifacts ───────────────────────────
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.tiff
+*.heic
+*.webp
+# ...except documentation and generated test fixtures
+!docs/**/*.{png,jpg,jpeg,svg}
+!frontend/public/**/*.{png,jpg,jpeg,svg,ico}
+!tools/fixtures/goldens/**/*
+
+# ── Python ───────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv/
+venv/
+env/
+ENV/
+.python-version
+.uv/
+uv.lock.tmp
+
+# ── Test / coverage / type-check artifacts ───────────────────
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+nosetests.xml
+junit.xml
+test-results/
+playwright-report/
+playwright/.cache/
+blob-report/
+.hypothesis/
+.mutmut-cache
+mutmut-cache/
+
+# ── Node / frontend ──────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+.yarn/
+.pnpm-store/
+.npm/
+next-env.d.ts
+.next/
+.nuxt/
+out/
+.next-swc/
+.swc/
+.turbo/
+.vite/
+*.tsbuildinfo
+.vercel/
+
+# ── Generated API types (regenerated in CI from OpenAPI) ─────
+# Committed intentionally so drift is visible in review:
+#   frontend/src/types/api.ts
+# Do NOT ignore it.
+
+# ── Databases / local data ───────────────────────────────────
+*.sqlite
+*.sqlite3
+*.db
+pgdata/
+redisdata/
+docker-volumes/
+minio-data/
+
+# ── Logs & reports ───────────────────────────────────────────
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+reports/generated/
+*.prof
+sbom/
+
+# ── Editors / OS ─────────────────────────────────────────────
+.idea/
+.vscode/*
+!.vscode/settings.json.example
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+.history/
+
+# ── Docker / infra local state ───────────────────────────────
+*.pid
+docker-compose.override.yml
+infra/local/
+.terraform/
+*.tfstate
+*.tfstate.backup
