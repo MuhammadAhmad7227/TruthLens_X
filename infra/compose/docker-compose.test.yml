@@ -1,0 +1,22 @@
+services:
+  postgres:
+    extends:
+      file: docker-compose.yml
+      service: postgres
+    environment:
+      POSTGRES_DB: truthlens_test
+  redis:
+    extends:
+      file: docker-compose.yml
+      service: redis
+  api:
+    extends:
+      file: docker-compose.yml
+      service: api
+    environment:
+      TLX_ENVIRONMENT: test
+      TLX_DATABASE_URL: postgresql+psycopg://tlx:tlx_dev_only@postgres:5432/truthlens_test
+  frontend:
+    extends:
+      file: docker-compose.yml
+      service: frontend
