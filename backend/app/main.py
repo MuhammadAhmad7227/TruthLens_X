@@ -7,6 +7,7 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 from .core.config import get_settings
 from .core.errors import AppError, app_error_handler
 from .core.logging import configure_logging
+from sqlalchemy import create_engine, text
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
