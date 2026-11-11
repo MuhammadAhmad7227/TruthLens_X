@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-truthlens}
+      POSTGRES_USER: ${POSTGRES_USER:-tlx}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tlx_dev_only}
+    healthcheck: {test: ["CMD-SHELL","pg_isready -U tlx -d truthlens"], interval: 5s, timeout: 5s, retries: 10}
+    volumes: [postgres_data:/var/lib/postgresql/data]
+
+  redis:
+    image: redis:7.2-alpine
+    command: ["redis-server","--appendonly","yes"]
+    healthcheck: {test: ["CMD","redis-cli","ping"], interval: 5s, timeout: 5s, retries: 10}
+    volumes: [redis_data:/data]
+
+  api:
+    build: {context: ../../, dockerfile: infra/docker/api.Dockerfile}
+    environment:
+      TLX_DATABASE_URL: postgresql+psycopg://tlx:tlx_dev_only@postgres:5432/truthlens
+      TLX_REDIS_URL: redis://redis:6379/0
+      TLX_ENVIRONMENT: development
+      TLX_SECRET_KEY: ${TLX_SECRET_KEY:-dev-only-change-me}
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    ports: ["8000:8000"]
+
+  frontend:
+    build: {context: ../../, dockerfile: infra/docker/frontend.Dockerfile}
+    depends_on: [api]
+    ports: ["3000:3000"]
+
+volumes:
+  postgres_data:
+  redis_data:
