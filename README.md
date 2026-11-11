@@ -2,17 +2,18 @@
 
 **TruthLens X** — an AI-powered digital forensics and evidence intelligence platform.
 
-> ## ⚠️ Project status: **PLANNING COMPLETE — NO APPLICATION CODE YET**
+> ## ✅ Architecture ratified · 🔵 Milestone M1 approved · **No application code yet**
 >
-> Milestone **M0** (architecture & documentation) is complete. Milestones **M1–M21** have not been
-> started, because **20 architectural decisions are awaiting approval** — 8 of them block the first
-> line of code.
+> **M0** (architecture) and **M0.5** (decision ratification) are complete. **M1 foundation is scaffolded on this branch; runtime validation remains pending on a host/CI runner.** All 20 architectural
+> decisions were approved by the project owner on 2026-11-10 and are recorded as **23 Architecture
+> Decision Records** in [docs/adr/](./docs/adr/README.md).
 >
-> 👉 **Read [docs/DECISIONS.md](./docs/DECISIONS.md) first.** It lists every assumption made while
-> designing this system, the options for each, and what changes if you disagree.
+> Nothing in this repository is functional yet. There is no backend, no frontend, no database and no
+> Docker stack — only the specification for them, which is deliberate: the owner's instruction is to
+> complete the documentation and licensing analysis **before** implementation.
 >
-> Nothing in this repository is functional yet. There is no backend, no frontend, no database, and
-> no Docker stack — only the specification for them.
+> 👉 Start with [docs/DECISIONS.md §3](./docs/DECISIONS.md) (what was decided) or
+> [docs/adr/README.md](./docs/adr/README.md) (why, and how to reverse each one).
 
 ---
 
@@ -49,7 +50,11 @@ Full policy: [docs/MASTER_PRD.md §5](./docs/MASTER_PRD.md#5-ai-responsibility-p
 
 | Document | What it answers |
 |---|---|
-| **[docs/DECISIONS.md](./docs/DECISIONS.md)** | **What needs your approval — start here.** |
+| **[docs/DECISIONS.md](./docs/DECISIONS.md)** | **What was decided** — the ratified log with conditions and flagged conflicts |
+| [docs/adr/](./docs/adr/README.md) | **23 Architecture Decision Records** — alternatives, rationale, consequences, licensing and security implications, reversal strategy |
+| [docs/THIRD_PARTY_LICENSE_AUDIT.md](./docs/THIRD_PARTY_LICENSE_AUDIT.md) | Two registers — software **and** artifacts (weights, checkpoints, datasets, binaries) — copyleft containment, substitution register, 11 open legal items |
+| [docs/AI_ARCHITECTURE.md](./docs/AI_ARCHITECTURE.md) | Provider adapters, the never-send list, per-request egress confirmation, kill switch, citation validation, no cloud fallback |
+| [docs/BACKUP_RECOVERY.md](./docs/BACKUP_RECOVERY.md) | LUKS2 provisioning, key custody, backup encryption (separately), restore and DR procedures, deployment preflight |
 | [docs/README.md](./docs/README.md) | Index + suggested reading order by role |
 | [docs/MASTER_PRD.md](./docs/MASTER_PRD.md) | All 22 modules as testable requirements, AI-responsibility policy, NFRs, user journeys |
 | [docs/SYSTEM_ARCHITECTURE.md](./docs/SYSTEM_ARCHITECTURE.md) | Containers, full folder structure, data flows, storage layout, verified licence table, copyleft containment |
@@ -74,10 +79,10 @@ Full policy: [docs/MASTER_PRD.md §5](./docs/MASTER_PRD.md#5-ai-responsibility-p
 | Testing | pytest · hypothesis · Vitest · Playwright · k6 |
 | Infrastructure | Docker · Docker Compose · nginx · GitHub Actions |
 
-### ⚠️ Licensing note (decision required)
+### ⚠️ Licensing note (resolved — audit complete)
 
 Three components named in the project brief carry copyleft licences that reach hosted/networked use.
-This was verified against PyPI and GitHub on 2026-11-10:
+Verified against PyPI and GitHub on 2026-11-10, and resolved by **ADR-0001/0002/0003**:
 
 | Component | Package | Licence | Issue |
 |---|---|---|---|
@@ -85,14 +90,26 @@ This was verified against PyPI and GitHub on 2026-11-10:
 | PDF | `PyMuPDF` | **AGPL-3.0** or Artifex commercial | Same |
 | Metadata | ExifTool binary | **GPL-3.0** | Separate-process invocation is the standard containment, but bundling needs sign-off |
 
-The proposed design defaults to a **permissive-only** dependency set (torchvision/mmdetection for
-detection, `pikepdf` MPL-2.0 for PDF structure, subprocess-isolated ExifTool with a pure-Python
-fallback), with each copyleft component available behind an explicit, audited feature flag.
-ByteTrack's reference implementation is MIT and will be ported rather than reached through the AGPL
-`ultralytics` tracking wrapper.
+**Approved resolution:** the default dependency set is **permissive-only** — torchvision (or YOLOX,
+Apache-2.0) for detection, `pikepdf` (MPL-2.0) + `pdfminer.six` (MIT) for PDF, subprocess-isolated
+ExifTool with a tested pure-Python fallback. Each copyleft component stays available behind an
+explicit `ENABLE_*` flag that is **never on by default**. ByteTrack's MIT association logic is ported
+in-tree rather than reached through the AGPL `ultralytics` tracking wrapper, and its MOT-trained
+checkpoints are not shipped.
 
-Details and options: [docs/DECISIONS.md](./docs/DECISIONS.md) → **D-001, D-002, D-003**, and
-[docs/SYSTEM_ARCHITECTURE.md §7.2 and §8](./docs/SYSTEM_ARCHITECTURE.md).
+Two further findings changed the design rather than just the paperwork:
+
+- **torchvision's own documentation warns** that its pretrained models *"may have their own licenses
+  or terms and conditions derived from the dataset used for training"*. TruthLens X therefore ships
+  **no detection weights** — the operator registers weights they are licensed for.
+- **Published deepfake detectors are research/non-commercial licensed**, as are their datasets
+  (FaceForensics++, DFDC). The deepfake module therefore ships **weight-free classical indicators**
+  ([ADR-0023](./docs/adr/ADR-0023-weight-free-deepfake-indicators.md)).
+- **Redis is pinned to 7.2 (BSD-3)** because Redis 8 changed licence
+  ([ADR-0022](./docs/adr/ADR-0022-redis-72-version-pin.md)).
+
+Full audit, including 11 open items for legal counsel:
+**[docs/THIRD_PARTY_LICENSE_AUDIT.md](./docs/THIRD_PARTY_LICENSE_AUDIT.md)**.
 
 ---
 
@@ -111,7 +128,7 @@ Details and options: [docs/DECISIONS.md](./docs/DECISIONS.md) → **D-001, D-002
 8. Document forensics — PDF **incremental-revision detection and diff**, XMP, embedded-file extraction, OOXML analysis, OCR fallback
 9. Metadata extraction — ExifTool isolation, normalised schema, timestamp provenance classification, stripping-signal detection
 10. Location intelligence — GPS parsing with uncertainty, clustering, movement tracks, offline gazetteer, implausibility checks
-11. Deepfake analysis — frequency/face/temporal/audio **indicator ensemble** with an advisory score, interval, and a mandatory disclaimer. Never a verdict.
+11. Deepfake analysis — **weight-free classical** frequency/face/temporal/audio indicator ensemble with an advisory score, interval, and a mandatory disclaimer. Never a verdict (ADR-0023).
 12. Object detection & tracking — pluggable detectors, ByteTrack association, stable track IDs, queryable detections
 13. Licence-plate recognition — two-stage detect→OCR, jurisdiction-aware format validators, top-N ambiguous-character reporting, no external registry lookups
 14. Evidence comparison — exact/perceptual hash, feature matching with RANSAC, histograms, embeddings, metadata diff, audio cross-correlation, text diff
@@ -134,7 +151,7 @@ cracking, speaker identification, external registry lookups) are listed in
 
 ## Repository layout
 
-Currently only documentation exists. The full planned tree — `backend/`, `ai_services/`,
+The M1 foundation now contains backend/frontend/compose/CI scaffolding. Forensic and domain feature code remains intentionally absent. The full planned tree — `backend/`, `ai_services/`,
 `frontend/`, `infra/`, `tools/` — is specified in
 [docs/SYSTEM_ARCHITECTURE.md §4](./docs/SYSTEM_ARCHITECTURE.md#4-repository-structure) and will be
 scaffolded in milestone M1.
@@ -151,7 +168,7 @@ TruthLens_X/
 
 ## Roadmap at a glance
 
-`M0 ✅ docs` → `M1 foundation` → `M2 database` → `M3 auth/RBAC` → `M4 cases` →
+`M0 ✅ docs · M0.5 ✅ ratification` → `M1 foundation` → `M2 database` → `M3 auth/RBAC` → `M4 cases` →
 **`M5 evidence ingest & integrity`** → **`M6 chain of custody`** → `M7 async platform` →
 `M8 metadata` → `M9 image` → `M10 document` → `M11 audio` → `M12 video` → `M13 detection/ALPR` →
 `M14 deepfake indicators` → `M15 comparison/similarity` → `M16 graph/timeline` → `M17 AI assistant` →
@@ -176,5 +193,11 @@ presentation of digital evidence.
 
 ## Licence
 
-Undecided — see [docs/DECISIONS.md → D-008](./docs/DECISIONS.md). No `LICENSE` file has been added
-deliberately, so that the choice is made consciously alongside the AGPL/GPL decisions above.
+**The repository is deliberately unlicensed** — no `LICENSE` file, and no claim of being open source.
+This is an explicit decision, not an omission: under copyright law, no licence means no grant, so the
+work is fully reserved and every future option (proprietary, permissive, or AGPL) stays open.
+Rationale and reversal asymmetry: [ADR-0008](./docs/adr/ADR-0008-repository-remains-unlicensed.md);
+tracked for counsel as item **L-10**.
+
+Third-party component licences are unaffected by our choice and are audited in
+[docs/THIRD_PARTY_LICENSE_AUDIT.md](./docs/THIRD_PARTY_LICENSE_AUDIT.md).

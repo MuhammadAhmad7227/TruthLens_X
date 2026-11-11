@@ -81,16 +81,21 @@
 | Password storage | **argon2id**: `m=64 MiB, t=3, p=4` (RFC 9106 low-memory first-recommended), 16 B salt, 32 B tag; params embedded in the stored string so they can be upgraded transparently | Legacy bcrypt (`cost=12`) verified then rehashed on login. `passlib` avoided (unmaintained; breaks on bcrypt ≥ 4.1). |
 | JWT signing | **EdDSA (Ed25519)** preferred; **RS256** where an external verifier needs the public key. Symmetric HS256 is **disallowed** in production config (startup check). | Keys from env/secret store, with `kid` and rotation support; rotation keeps the previous public key valid for one token TTL. |
 | Token/secret at rest | Refresh tokens stored **only** as SHA-256 hashes. TOTP secrets and any provider API keys encrypted with AES-256-GCM under a KEK from env/KMS. | No plaintext long-lived credential in the DB. |
-| Optional evidence encryption (D-006) | AES-256-GCM envelope: random per-object DEK, DEK wrapped by KEK; nonce uniqueness enforced per object; AAD binds `sha256` + `physical_object_id` | **Off by default.** Trade-off: protects against disk theft; adds a key-loss = evidence-loss failure mode. Requires key backup/escrow design before enabling. |
+| **Encryption at rest (approved)** | **LUKS2 full-volume encryption**: `aes-xts-plain64`, 512-bit key, SHA-512, **argon2id** KDF, three key slots, two independent physical custodians | Covers originals, derivatives, PostgreSQL data, Redis persistence and backups. Protects stolen/disposed media. **Does NOT protect against an attacker with access to an already-unlocked, running server** — that is what write-once mounts, RBAC and hash chaining are for. Full specification: [BACKUP_RECOVERY.md](./BACKUP_RECOVERY.md). |
+| Application-level envelope encryption | AES-256-GCM per object, DEK wrapped by KEK | **NOT implemented in v1** (ADR-0006). Schema columns are reserved so it stays additive later. |
+| Backup encryption | **Separate** from LUKS keys: restic AES-256 + Poly1305, `RESTIC_PASSWORD_FILE` in tmpfs from the secret store | A file copied out of an unlocked LUKS volume is **plaintext** — backups are encrypted by the backup tool under a **distinct** key (ADR-0006 §9, BACKUP_RECOVERY §6.1). |
 | Signed download URLs | HMAC-SHA256 over `evidence_id|expires_at|purpose|nonce`, base64url | Short TTL, single purpose, no token embedded. |
 | TLS | TLS 1.2+ (1.3 preferred); Mozilla *intermediate* cipher list; HSTS `max-age=31536000; includeSubDomains` (preload only once the domain is stable) | Terminated at nginx; internal traffic on a private Docker network. |
 | Randomness | `secrets` module / OS CSPRNG for all tokens, salts, nonces, ids | `random` is forbidden for security purposes (ruff/bandit rule). |
 
-**Key management (v1, honest scope):** keys live in environment variables injected from the host's
-secret store (Docker secrets / systemd credentials / cloud KMS in phase 2). There is **no** in-product
-HSM. Documented consequences: key rotation is a manual, runbook-driven operation; a host compromise
-exposes keys; `ENCRYPTION_KEY` loss with envelope encryption enabled is unrecoverable without backup.
-Runbooks: `docs/runbooks/key-rotation.md`, `docs/runbooks/key-compromise.md` (delivered in M14).
+**Key management (v1, honest scope):** application secrets live in environment variables injected from
+the host secret store (Docker secrets / systemd credentials). There is **no** in-product HSM. Documented
+consequences: rotation is a manual, runbook-driven operation, and a host compromise exposes application
+secrets. **LUKS2 key custody is a separate and more critical discipline** — three key slots, two
+independent physical custodians, never stored in GitHub, source, images or ordinary env files, and a
+production go-live gate that blocks deployment until custody is verified
+([BACKUP_RECOVERY.md §5.6](./BACKUP_RECOVERY.md)). Losing the LUKS keys destroys the evidence
+permanently. Runbooks: `key-rotation`, `key-compromise`, `luks-key-loss` (delivered in M20).
 
 ---
 
@@ -109,7 +114,20 @@ Any layer failing ⇒ deny. Denials are logged with the specific failing layer (
 
 ### 4.2 Capability matrix
 
+Permissions are **named capabilities** stored in the `capabilities` and `rbac_matrix` tables and
+resolved at request time (ADR-0004). The canonical vocabulary:
+
+`view_case` · `edit_case` · `close_case` · `reopen_case` · `manage_members` · `upload_evidence` ·
+`view_evidence` · `view_evidence_content` · `edit_evidence_metadata` · `delete_evidence` ·
+`hard_delete_evidence` · `analyze_evidence` · `view_finding` · `verify_finding` ·
+`create_comparison` · `create_graph_edge` · `verify_graph_edge` · `create_timeline_event` ·
+`use_assistant` · `export_reports` · `generate_report` · `approve_report` · `read_audit` ·
+`verify_audit_chain` · `manage_users` · `manage_models` · `manage_settings` · `manage_queues` ·
+`break_glass` · `enable_external_ai`
+
 C = create, R = read, U = update, X = execute, — = no access. `(m)` = metadata only, no original content.
+The table below maps capabilities to global roles; `case_members.capability_overrides` may add or
+remove specific capabilities per membership.
 
 | Capability | admin | lead_investigator | investigator | analyst | reviewer | auditor |
 |---|---|---|---|---|---|---|
@@ -162,9 +180,13 @@ Changing a cell requires a migration + review, which makes privilege changes aud
 4. Service layer: state rules (case closed, legal hold, verification eligibility, second approver).
 5. Repository layer: every query is case-scoped by construction; a lint rule flags any query on a
    case-scoped table without a `case_id` predicate.
-6. Database: RLS **not** used in v1 (complexity vs benefit with a single app role per service);
-   compensating controls are the repository rule + the route-enumeration test + audit. RLS is a
-   phase-2 hardening option (D-010).
+6. Database: **RLS is NOT implemented in v1 — including M20** (ADR-0010, per the explicit D-004
+   instruction). Four compensating controls replace it, all CI-enforced: the single authorisation choke
+   point, a repository lint rule that fails any query on a case-scoped table without a `case_id`
+   predicate, the route-enumeration test, and the negative matrix test. DB *role* separation
+   (`tlx_app` DML-only, `tlx_migrator` DDL, `tlx_auditor` read-only) and revoked `UPDATE`/`DELETE` on
+   append-only tables are still enforced — that is privilege separation, not RLS. The schema stays
+   RLS-ready (every case-scoped table has a non-null `case_id`), so adding it later is additive.
 
 ---
 

@@ -156,8 +156,14 @@ with:
 
 ## 2. Endpoint map
 
-Legend: 🔒 = requires valid token + case ACL; 👑 = requires `admin`; ⚖ = requires
-`can_verify_findings`; 📝 = writes an audit record.
+Legend: 🔒 = requires a valid token **and** the named case capability; 👑 = requires `admin`;
+⚖ = requires the `verify_finding` capability; 📝 = writes an audit record.
+
+Every route declares its required capability via `x-capability` in the OpenAPI document, and a
+CI-blocking test asserts that declaration matches the expected matrix for **100% of routes** — a new
+route without a declared capability cannot be merged (ADR-0004, TESTING_STRATEGY §7.1). Case-scoped
+resources the caller cannot access return **`404`**, not `403`, so existence is not enumerable.
+Frontend visibility is never a security control: the server re-evaluates every request.
 
 ### 2.1 Auth & session
 
@@ -335,8 +341,21 @@ Note the absence of any verdict field. `advisory_score` is always accompanied by
 | POST | `/cases/{c}/assistant/conversations/{id}/messages` | 🔒📝 | `{content}` → assistant reply with `citations[]` or `unsupported=true`. **SSE** streaming variant at `…/messages:stream`. |
 | POST | `/cases/{c}/assistant/suggested-actions` | 🔒 | Derived from real case state (coverage gaps, backlog) — not free-form invention. |
 | GET | `/cases/{c}/assistant/guardrails` | 🔒 | Active guardrail version + system-prompt summary (transparency). |
+| POST | `/cases/{c}/assistant/conversations/{id}/messages:egress-preview` | 🔒 | **Returns exactly what would leave the host** — provider, destination host, data categories, char count, redactions applied, and the never-send list — plus a bound, expiring `confirmation_token`. Only meaningful when external AI is enabled. |
+| GET | `/cases/{c}/assistant/egress-status` | 🔒 | Whether external AI is enabled, by whom, when it expires, and which categories are allowed. |
 
 The assistant namespace exposes **no** mutation of evidence, custody, or verification state (AI-03).
+
+**Egress control (ADR-0007 / ADR-0021).** When `ENABLE_EXTERNAL_AI=false` (the default), every
+external-transmission path returns `403 EXTERNAL_AI_DISABLED` and the server makes **zero** outbound
+connections. When enabled, a message request that would transmit data **must** present a valid,
+unexpired `confirmation_token` bound to `(user, conversation, category set, char-count band)`;
+without it the request is rejected with `403 EGRESS_CONFIRMATION_REQUIRED`. The token cannot be
+replayed for a larger payload. A failing **local** provider returns `ASSISTANT_UNAVAILABLE` with
+`fallback_attempted: false` — there is **no** cloud fallback code path.
+
+Error codes added for this namespace: `EXTERNAL_AI_DISABLED`, `EGRESS_CONFIRMATION_REQUIRED`,
+`EGRESS_CATEGORY_NOT_ALLOWED`, `EGRESS_GRANT_EXPIRED`, `ASSISTANT_UNAVAILABLE`.
 
 ### 2.11 Reports
 
@@ -378,14 +397,19 @@ There is **no** PATCH/PUT/DELETE on any audit resource, by design and by DB gran
 | POST | `/admin/integrity-sweep:run` | 👑📝 | Trigger a full/partial sweep. |
 | GET · PATCH | `/admin/settings` | 👑📝 | Curated runtime settings (allowlisted keys only). |
 | GET | `/admin/flags` | 👑 | Feature/licence flags incl. AGPL component state. |
-| GET | `/admin/alerts` | 👑 | Security/detection alerts (auth failures, chain break, integrity mismatch, bulk export). |
+| GET | `/admin/alerts` | 👑 | Security/detection alerts (auth failures, chain break, integrity mismatch, bulk export, cross-case denial spikes). |
+| POST | `/admin/ai/external:enable` | 👑 `enable_external_ai`📝 | `{justification (required), expires_at (≤30 days), acknowledged_disclosure: true}` → writes an `ai_external_grants` row, notifies every case lead, audits `admin.ai.external_enabled`. Refused if `ENABLE_EXTERNAL_AI=false` in config. |
+| POST | `/admin/ai/external:disable` | 👑📝 | **Kill switch.** Immediate; revokes all outstanding confirmation tokens; audits `admin.ai.external_disabled`. |
+| POST | `/admin/ai/kill` | 👑📝 | Disables **all** assistant inference, local included — incident response. |
+| GET | `/admin/ai/egress-log` | 👑 | Every external transmission: actor, case, provider, model, categories, char count, redactions, purpose, confirmation-token id. |
+| GET | `/admin/deployment/verify` | 👑 | Runs the host preflight checks (encrypted volume mounted, permissions, nginx isolation, disk, NTP, auditd) and returns the per-check result. |
 
 ### 2.14 Health & metrics
 
 | Method | Path | Access | Purpose |
 |---|---|---|---|
 | GET | `/healthz` | public | Liveness. `200 {"status":"ok"}`. No dependency checks (so it can't flap). |
-| GET | `/readyz` | public | Readiness: DB reachable, Redis reachable, migrations at head, worker heartbeat seen. `503` otherwise. |
+| GET | `/readyz` | public | Readiness: DB reachable, Redis reachable, migrations at head, worker heartbeat seen, **and the host preflight has passed** (encrypted volume mounted at the expected path). `503` otherwise. |
 | GET | `/api/v1/status` | 👑 | Detailed dependency + worker + GPU status. |
 | GET | `/metrics` | network-restricted | Prometheus text format; **not** exposed through the public nginx route. |
 

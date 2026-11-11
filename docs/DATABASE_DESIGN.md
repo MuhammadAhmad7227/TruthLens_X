@@ -27,7 +27,12 @@
 ### 1.1 Naming conventions
 
 - Tables: `snake_case`, plural (`evidence_items`).
-- PKs: `id UUID PRIMARY KEY DEFAULT gen_random_uuid()` (UUIDv4 via `pgcrypto`; UUIDv7 considered in D-009).
+- PKs: `id uuid PRIMARY KEY`. **UUIDv7** (time-ordered, via a PL/pgSQL function added by migration) for
+  high-volume append-only tables — `audit_logs`, `custody_events`, `model_invocations`,
+  `integrity_checks`, `detections`, `transcript_segments`, `derivatives`, `analysis_jobs`.
+  **UUIDv4** (`gen_random_uuid()`) for externally visible, long-lived entities — `users`, `cases`,
+  `evidence_items`, `physical_objects`, `ai_models`, `reports`. Rationale and the information-leak
+  argument: **ADR-0009**.
 - FKs: `<singular_table>_id`.
 - Timestamps: `created_at`, `updated_at` (`timestamptz NOT NULL DEFAULT now()`), plus domain-specific `*_at`.
 - Enums: native Postgres `CREATE TYPE ... AS ENUM` for small, stable sets (they are indexed efficiently and constrain values); `CHECK` + text for sets likely to grow.
@@ -112,12 +117,29 @@ custody and audit record — a forensic platform that loses "who did this" is wo
 Hot-path revocation checks also consult a Redis `jti` denylist for access tokens (fast, TTL-matched);
 Postgres is the durable record.
 
+### 3.2b `organisations` — inert in v1, present for tenancy-readiness (ADR-0004)
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid | PK |
+| `name` | text | NOT NULL |
+| `slug` | text | UNIQUE NOT NULL |
+| `status` | text | `active` |
+| `created_at` | timestamptz | |
+
+**v1 contains exactly one seeded row** (`slug='org_default'`). It is **not read by any authorisation
+logic in v1** and carries no `tenant_id` semantics. Its only purpose is to make multi-tenancy an
+*additive* change later: populate real organisations → backfill `cases.organisation_id` → add one
+predicate inside the single authorisation choke point → enable RLS (ADR-0010 reversal path). Per D-004,
+`tenant_id`, RLS, per-tenant encryption keys and tenant quotas are **not** implemented in v1.
+
 ### 3.3 `cases`
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | uuid | PK |
 | `case_number` | text | UNIQUE NOT NULL, immutable after creation, format `TLX-<YYYY>-<6 digits>` (generated in a transaction against `case_number_seq`) |
+| `organisation_id` | uuid | FK → organisations, NOT NULL DEFAULT the seeded `org_default` row. **Inert in v1** — see §3.2b. Present so tenancy is additive, not a rewrite. |
 | `title` | text | NOT NULL |
 | `description` | text | |
 | `status` | `case_status` enum | `draft`, `active`, `under_review`, `closed`, `archived` |
@@ -143,8 +165,9 @@ Postgres is the durable record.
 | `case_role` | `case_role` enum | `owner`, `lead`, `member`, `contributor`, `viewer` |
 | `granted_by` | uuid | FK → users, NOT NULL |
 | `valid_from` / `valid_until` | timestamptz | time-bounded grants (CASE-03) |
-| `can_view_original_content` | boolean | NOT NULL DEFAULT true — allows metadata-only membership for auditors/reviewers |
-| `can_verify_findings` | boolean | NOT NULL DEFAULT false |
+| `capability_overrides` | text[] | NOT NULL DEFAULT '{}' — per-membership grants/revocations of the named capabilities below, applied **after** the `case_role` defaults |
+| `can_view_original_content` | boolean | NOT NULL DEFAULT true — allows metadata-only membership for auditors/reviewers. Maps to the `view_evidence_content` capability. |
+| `can_verify_findings` | boolean | NOT NULL DEFAULT false — maps to the `verify_finding` capability |
 | `revoked_at` / `revoked_by` | | |
 
 Unique: `(case_id, user_id)`. Index: `ix_case_members_user_active`.
@@ -788,6 +811,22 @@ one requires a type-rebuild migration with an explicit data path. That asymmetry
 - `dqt_signatures` — reference quantisation tables for known cameras/encoders (source + licence noted per row).
 - `relation_types`, `pipeline_catalogue` — typed vocabularies so the graph/pipeline fields stay constrained without brittle enums.
 - `rbac_matrix` — role × capability rows consumed by the authorisation service (SECURITY_ARCHITECTURE §4).
+- `capabilities` — the canonical capability vocabulary (ADR-0004). Each row is `code`, `description`,
+  `scope` (`case` | `platform`), `sensitive` (bool), `audit_always` (bool). The v1 set:
+  `view_case`, `edit_case`, `close_case`, `reopen_case`, `manage_members`, `upload_evidence`,
+  `view_evidence`, `view_evidence_content`, `edit_evidence_metadata`, `delete_evidence`,
+  `hard_delete_evidence`, `analyze_evidence`, `view_finding`, `verify_finding`, `create_comparison`,
+  `create_graph_edge`, `verify_graph_edge`, `create_timeline_event`, `use_assistant`,
+  `export_reports`, `generate_report`, `approve_report`, `read_audit`, `verify_audit_chain`,
+  `manage_users`, `manage_models`, `manage_settings`, `manage_queues`, `break_glass`,
+  `enable_external_ai`.
+- `ai_external_grants` — one row per approved external-AI enablement (ADR-0007 §4.2):
+  `id`, `enabled_by`, `justification` (NOT NULL), `acknowledged_disclosure` (bool, NOT NULL),
+  `enabled_at`, `expires_at` (NOT NULL, ≤ `enabled_at + 30 days`), `revoked_at`, `revoked_by`,
+  `allowed_categories text[]`, `status`. Expiry is enforced by a beat job; there is no permanent grant.
+
+  `CHECK (expires_at <= enabled_at + interval '30 days')` — the time bound is a database constraint,
+  not an application convention.
 
 ---
 
