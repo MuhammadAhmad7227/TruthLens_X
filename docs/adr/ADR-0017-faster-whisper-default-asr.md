@@ -1,77 +1,65 @@
-# ADR-0017 — faster-whisper (MIT) as the default ASR engine
+# ADR-0017 — faster-whisper is the default ASR engine; openai-whisper available
 
 | | |
 |---|---|
-| **Status** | Accepted — ratified 2026-11-10 |
+| **Status** | Accepted — 2026-11-10 |
 | **Decision ID** | D-017 |
-| **Related** | [ADR-0001](ADR-0001-permissive-default-dependency-set.md), [ADR-0012](ADR-0012-data-residency-no-default-egress.md), [THIRD_PARTY_LICENSE_AUDIT §5.3](../THIRD_PARTY_LICENSE_AUDIT.md) |
+| **Related** | [THIRD_PARTY_LICENSE_AUDIT.md](../THIRD_PARTY_LICENSE_AUDIT.md) §5 (W-1, W-2) |
 
 ## Context
-
-Audio forensics (M11) needs automatic speech recognition to produce transcripts and time-aligned
-segments. Two Whisper implementations were audited: `openai-whisper` (reference, PyTorch) and
-`faster-whisper` (CTranslate2). **Both the code and the model weights of OpenAI's Whisper are MIT** —
-verified from the upstream README: *"Whisper's code and model weights are released under the MIT
-License."* This is unusually clear for a model family and was a decisive factor.
+Both `faster-whisper` (1.2.1) and `openai-whisper` (20250625) are **MIT**, and openai/whisper's README
+explicitly states *"Whisper's code and model weights are released under the MIT License"* — verified
+2026-11-10. So this is a performance and fidelity choice, not a licence one.
 
 ## Decision
-
-1. **`ASR_ENGINE=faster-whisper`** is the default. CTranslate2 inference is roughly 4× faster and
-   substantially lower memory than the reference implementation, at identical weights.
-2. **`ASR_ENGINE=openai-whisper`** remains selectable for parity checks and for operators who prefer
-   the reference implementation.
-3. Both engines consume the **same MIT weights**, provisioned offline by
-   `infra/scripts/fetch-models.sh` and recorded in `models.lock.json` with `weights_licence: MIT`.
-4. Weights are **never downloaded at runtime** by default (`ALLOW_MODEL_DOWNLOAD=false`, ADR-0012).
-5. Transcripts are stored as `transcript_segments` with UUIDv7 ids (ADR-0009), each carrying model
-   name, version, provider, start/end offsets and a confidence measure with a stated basis.
-6. Transcripts are **derivative artifacts**, stored separately from originals, and are labelled as
-   machine-generated requiring human verification.
-7. **Speaker diarisation weights are a separate, unresolved licence question** — recorded as finding
-   **L-6** (`pyannote` models require acceptance of gated terms). Diarisation ships **disabled**;
-   if enabled later, it needs its own flag and its own licence verification.
+1. Default engine: **`faster-whisper`** (CTranslate2 backend) — materially faster on CPU, lower
+   memory, and the CPU-only default deployment (ADR-0005) benefits most.
+2. `openai-whisper` remains selectable via `ASR_ENGINE=openai-whisper` for reference-fidelity checks.
+3. Both sit behind one `AsrEngine` interface producing identical `transcript_segments` rows, with the
+   engine name and version recorded on every invocation.
+4. Model size is configurable (`ASR_MODEL_SIZE`): `base`/`small` for CPU deployments, `large-v3` where
+   a GPU is present.
+5. Word-level timestamps, detected language **and its probability**, and per-segment confidence are
+   always recorded; transcripts are labelled machine output everywhere.
+6. Weights are operator-provisioned via `fetch-models.sh` and pinned by SHA-256 in `models.lock.json`
+   with `weights_licence: MIT`.
 
 ## Alternatives considered
-
 | Option | Verdict |
 |---|---|
-| `openai-whisper` as default | Rejected as default — slower and heavier for identical output; retained as an option. |
-| Vosk / Kaldi | Viable and Apache-2.0, but lower accuracy on the multilingual material this platform targets. |
-| Cloud ASR | Rejected outright — transmitting evidence audio off-host breaches ADR-0012 and the never-transmittable list. |
-| Ship bundled weights in the image | Rejected — multi-GB images, and weights must be operator-provisioned and hash-verified (risk RR-3). |
+| `openai-whisper` as default | Rejected — slower and heavier on CPU, which is the default deployment |
+| A commercial cloud ASR API | **Rejected** — would transmit audio off-host, contradicting ADR-0012 |
+| WhisperX or other derivatives | Deferred — extra dependencies and unclear weight provenance; the diarisation need is covered separately |
 
 ## Rationale
-
-Same weights, better runtime, both MIT. There is no licensing tension to resolve, so the choice is
-purely operational — and faster inference directly serves the ingest throughput target.
+Same licence, same weights, better CPU throughput. Keeping both means any transcription can be
+reproduced with the reference implementation if a result is ever challenged.
 
 ## Consequences
-
-* Two engine code paths must both be tested; a parity fixture asserts segment boundaries agree within
-  tolerance.
-* CTranslate2 adds a native dependency to the worker image (not to `api`).
-* Diarisation is visibly absent in v1; the UI states this rather than showing an empty speaker column.
+**Positive:** faster CPU transcription; a reference path for verification; MIT code **and** weights
+(verified).
+**Negative / accepted costs:** two code paths to keep contract-compatible; CTranslate2 conversion adds
+a build step for custom models; quantisation differences can produce small transcript variations
+between engines, which is why the engine and version are always recorded.
 
 ## Licensing implications
-
-Clean: code MIT, weights MIT, CTranslate2 Apache-2.0. **L-6 remains open for diarisation weights** and
-gates that feature, not ASR.
+MIT for both packages; MIT explicitly stated for the weights. `ctranslate2` is MIT. **No open legal
+item.** This is the cleanest weight-licence position of any AI component in the stack.
 
 ## Security implications
-
-Runs on the `isolated` network with no egress, so audio content cannot leave the host during
-transcription. Model artifacts are hash-verified at load; a mismatch fails closed (ADR-0001 §9).
+Audio is processed in the worker container only, on a read-only working copy. Transcripts may contain
+personal data and are access-controlled, audited and covered by the optional PII-redaction derivative.
+A missing model yields `error_class=MODEL_UNAVAILABLE` — **never** an empty transcript presented as
+"no speech" (AR-7).
 
 ## Reversal strategy
-
-The engine is selected by configuration behind a common `TranscriptionEngine` interface. Switching is
-a config change; switching model size is a provisioning change.
+Set `ASR_ENGINE`. Both produce the same rows; historical results remain interpretable because the
+engine name and version are stored per invocation. Re-embedding/re-transcription on engine change is a
+maintenance job, and old segments are superseded rather than deleted.
 
 ## Verification
-
-* Parity test: both engines on the same short fixture produce segments whose boundaries agree within
-  a stated tolerance.
-* Loader test: a `models.lock.json` entry with a mismatched SHA-256 is **refused**, with no fallback.
-* Test: transcripts are written to the derivatives tree, never into the originals tree.
-* UI/report string-lint: transcripts are labelled machine-generated and `requires_human_verification`
-  is true with no code path setting it false.
+- Golden test on a short synthetic fixture: deterministic transcript with a fixed model and seed on CPU.
+- Contract test: both engines produce schema-identical `transcript_segments`.
+- Failure test: model absent → `MODEL_UNAVAILABLE`, no empty-transcript result row.
+- Test asserts `language_probability` and word timings are present, and that a diarisation result
+  never contains a personal name (only `SPK_nn` labels).

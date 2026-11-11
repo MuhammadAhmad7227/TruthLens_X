@@ -4,414 +4,526 @@
 |---|---|
 | **Document ID** | TLX-DOC-010 |
 | **Version** | 1.0.0 |
-| **Last updated** | 2026-11-10 |
-| **Status** | Current — governs the default dependency set |
-| **Related** | [ADR-0001](adr/ADR-0001-permissive-default-dependency-set.md) · [ADR-0002](adr/ADR-0002-pikepdf-default-pdf-stack.md) · [ADR-0003](adr/ADR-0003-exiftool-optional-subprocess.md) · [ADR-0022](adr/ADR-0022-redis-7-2-pin.md) · [ADR-0023](adr/ADR-0023-weight-free-deepfake-indicators.md) |
-
-> ## ⚠️ This document is not legal advice
->
-> It records what was **verified from upstream sources** on 2026-11-10, what could **not** be
-> verified, and what the engineering consequences are. It does **not** assert that any deployment of
-> TruthLens X is legally compliant. Compliance requires review by qualified counsel against the
-> owner's actual jurisdiction, use case and distribution method. The owner's standing instruction —
-> *do not claim legal compliance without a proper licence audit* — applies to this document itself.
->
-> Every finding below states **how it was verified**, so a reviewer can check the work rather than
-> trust it.
+| **Status** | ACTIVE — governs dependency selection. Required by decision **D-001/D-002/D-003/D-008** and **ADR-0001…0003, ADR-0008**. |
+| **Verification date** | **2026-11-10** |
+| **Verification method** | Live queries to the PyPI JSON API, the npm registry, and the GitHub REST API. Commands reproduced in [Appendix A](#appendix-a--verification-commands). |
+| **Owner** | Lead Software Architect |
+| **Review cadence** | Re-verified on every dependency-add PR; full re-audit each release |
 
 ---
 
-## 1. Why this document exists
+## 0. Read this first
 
-Two of the most convenient libraries for this platform's core features are copyleft in a way that
-reaches a hosted service:
+> **This document is an engineering audit, not a legal opinion.** It records what the upstream
+> projects *say* about their own licensing, where that was verified, on what date, and what remains
+> uncertain. Requirement: **"Do not claim legal compliance without a proper licence audit."**
+> Accordingly, nothing here asserts compliance. Items marked ⚖️ require review by qualified legal
+> counsel before distribution or commercial hosting.
 
-* `ultralytics` 8.4.208 — **AGPL-3.0**
-* `PyMuPDF` — **dual AGPL-3.0 / Artifex commercial**
+### 0.1 The rule that generated this document
 
-AGPL §13 extends copyleft to *network* use. Operating TruthLens X as a service for others could
-obligate the owner to publish the entire platform source under AGPL. [ADR-0001](adr/ADR-0001-permissive-default-dependency-set.md)
-therefore establishes a permissive-by-default dependency graph with copyleft components behind
-explicit, audited flags.
+> *"Check model weights, datasets, pretrained checkpoints, and downloaded binaries separately. A
+> permissive Python package does not automatically make its model weights permissively licensed."*
+> — approval condition on D-001, 2026-11-10
 
-The audit produced three findings that were **not** anticipated and that changed design decisions:
+This is not a hypothetical concern for this project. It is a **live, verified finding**:
 
-1. **A permissive Python package does not make its weights permissive.** torchvision's own
-   documentation disclaims any licence for its pretrained models (§5.1). This drove
-   [ADR-0023](adr/ADR-0023-weight-free-deepfake-indicators.md).
-2. **Redis 7.2 → 8 is a licence change, not a version bump** (§8.4). This drove
-   [ADR-0022](adr/ADR-0022-redis-7-2-pin.md).
-3. **ExifTool's licence is genuinely ambiguous**, and the ambiguity may favour us (§3.1). This shaped
-   [ADR-0003](adr/ADR-0003-exiftool-optional-subprocess.md).
+- `torchvision` is BSD-3-Clause. Its own documentation states: *"The pre-trained models provided in
+  this library may have their own licenses or terms and conditions derived from the dataset used for
+  training. It is your responsibility to determine whether you have permission to use the models for
+  your use case."* → the **code** is permissive; the **weights** are not necessarily.
+- `ByteTrack` code is MIT. Its released checkpoints are trained/evaluated on **MOT17/MOT20**, whose
+  terms are non-commercial. → permissive algorithm, restricted artifacts.
+- `openai-whisper` is MIT **and** its README explicitly states *"Whisper's code **and model weights**
+  are released under the MIT License."* → permissive code **and** permissive weights, verified.
 
----
+Therefore this audit is split into **two independent registers**: [§1–§4 software](#1-software-register)
+and [§5–§7 artifacts](#5-artifact-register-weights--datasets--binaries--bundled-data). A component is
+only cleared when **both** registers clear it.
 
-## 2. Method
+### 0.2 Status legend
 
-| Source | Used for | Access |
-|---|---|---|
-| PyPI JSON API (`pypi.org/pypi/<pkg>/json`) | Version, declared licence, classifiers | Direct |
-| npm registry (`registry.npmjs.org`) | Frontend package versions and licences | Direct |
-| GitHub REST API (`api.github.com`) | Detected licence, `LICENSE` file contents, README text | Direct |
-| Upstream `LICENSE`, `README`, `docs/` **text** | The actual terms — metadata alone is unreliable | Direct |
-
-**Metadata was never treated as sufficient.** GitHub's licence detection and PyPI classifiers are
-heuristics; several findings below were only discoverable by reading upstream prose. Where a source
-could not be reached from the audit environment, the item is recorded as **unverified** and gates the
-affected artifact rather than being assumed favourable.
-
----
-
-## 3. System and tooling dependencies
-
-### 3.1 ExifTool — finding **L-1**, dual licence, ambiguity disclosed
-
-| | |
+| Symbol | Meaning |
 |---|---|
-| **Package** | ExifTool (Perl distribution, not a PyPI package) |
-| **Version audited** | current upstream, 2026-11-10 |
-| **Purpose** | Camera, GPS, device and maker-note metadata extraction (M8) |
-| **Distribution** | Installed as a binary in the `worker-cpu` image only; invoked as a subprocess |
-| **Flag** | `ENABLE_EXIFTOOL=true` (default **on**, but removable — see [ADR-0003](adr/ADR-0003-exiftool-optional-subprocess.md)) |
+| ✅ | Verified permissive; cleared for the default dependency set |
+| 🟡 | Permissive code but **artifact-level terms unresolved** (weights/dataset); cleared only with conditions |
+| 📋 | File-level copyleft (MPL-2.0 / LGPL): usable; modifications to *that file/library* must be shared |
+| ⚠️ | **Copyleft (AGPL/GPL)** — excluded from the default set; only behind an `ENABLE_*` flag, never on by default |
+| ⚖️ | Requires legal review before distribution or commercial hosting |
+| ❓ | Not verifiable from an allowed host; must be verified at fetch time and recorded in `models.lock.json` |
+| 🚫 | Prohibited in v1 |
 
-**What was verified, and the contradiction:**
+### 0.3 Default-set policy (from the approved decision)
 
-* The distribution `LICENSE` file contains the **full GPLv3 text**, and GitHub's detector reports
-  `GPL-3.0` for the repository.
-* The README's *COPYRIGHT AND LICENSE* section states verbatim: *"Copyright 2003-2026, Phil Harvey.
-  This is free software; you can redistribute it and/or modify it under the same terms as Perl itself
-  (either the Perl Artistic License or GPL)."*
+1. **Ultralytics YOLO and PyMuPDF are NOT in the default dependency set.**
+2. Detection uses `torchvision` or another **individually verified** permissively licensed CV implementation.
+3. PDF processing uses **`pikepdf`** initially.
+4. **ExifTool integration is optional** (`ENABLE_EXIFTOOL`, and see §4.1 for its dual-licence nuance).
+5. AGPL-dependent integrations sit behind explicit `ENABLE_*` flags.
+6. **No AGPL component is ever activated by default.**
+7. No dependency is silently substituted — every substitution is recorded with trade-offs (§8).
+8. No `LICENSE` file is added; the repository remains **unlicensed** pending a deliberate decision.
 
-A Perl-style dual licence lets the **recipient elect** the Artistic License, which is materially less
-restrictive than GPL and imposes no copyleft on separate programs. **The election may therefore
-substantially reduce exposure.** That is a legal judgement this document does not make.
+---
 
-> **Note on a dead end:** there is **no PyPI package named `ExifTool`.** `pypi.org/pypi/ExifTool/json`
-> returns no `info` key. The related `pyexiftool` binding is separately licensed (GPLv3+/BSD depending
-> on version) and is **not used** — we invoke the binary directly, which avoids the binding entirely.
+## 1. Software register
 
-**Engineering consequences (these hold under either licence reading):**
+### 1.1 Backend — `backend/` (Python 3.11)
 
-1. Invoked strictly as an **external subprocess** with an argument vector — never `shell=True`, never
-   imported, never linked. The platform is not a derivative work.
-2. Present in the `worker-cpu` image only, **never in `api`**.
-3. A **pure-Python fallback** (Pillow + pikepdf + a minimal EXIF/XMP/ICC reader) is always available
-   and used automatically when the binary is absent. M8 never hard-fails because of a licensing choice.
-4. Running **without** ExifTool is a documented, supported configuration — not a degraded mode.
-5. Timeout, output-size caps and resource limits apply to every invocation; it parses untrusted input
-   and has had CVEs.
+| Package | Version verified | Licence (verified) | Purpose | Distribution | Status |
+|---|---|---|---|---|---|
+| `fastapi` | 0.162.3 | MIT | HTTP framework, OpenAPI generation | PyPI wheel | ✅ |
+| `pydantic` | 2.14.3 | MIT | Schema validation — the honesty-policy enforcement point | PyPI wheel | ✅ |
+| `pydantic-settings` | 2.16.2 | MIT | Typed env configuration, fail-closed startup | PyPI wheel | ✅ |
+| `sqlalchemy` | 2.1.8 | MIT | ORM (typed 2.0 style) | PyPI wheel | ✅ |
+| `alembic` | 1.20.1 | MIT | Schema migrations | PyPI wheel | ✅ |
+| `psycopg[binary]` | 3.x | LGPL-3.0 **with** explicit permission to link | Postgres driver | PyPI wheel | 📋 ⚖️ see §1.5 |
+| `celery` | 5.7.0 | BSD-3-Clause | Background task orchestration | PyPI wheel | ✅ |
+| `redis` | 8.1.0 | MIT | Broker/cache client | PyPI wheel | ✅ |
+| `pyjwt` | 2.15.1 | MIT | JWT issue/verify (EdDSA) | PyPI wheel | ✅ |
+| `argon2-cffi` | 25.1.0 | MIT | argon2id password hashing | PyPI wheel | ✅ |
+| `bcrypt` | 4.x | Apache-2.0 | Legacy hash verification only | PyPI wheel | ✅ |
+| `python-multipart` | 0.0.33 | Apache-2.0 | Streaming multipart upload parsing | PyPI wheel | ✅ |
+| `structlog` | 24.x | MIT/Apache-2.0 | Structured JSON logging | PyPI wheel | ✅ |
+| `reportlab` | 5.1.0 | BSD | PDF investigation reports | PyPI wheel | ✅ |
+| `python-magic` | 0.4.27 | MIT (wrapper) | Magic-byte type detection — **requires `libmagic` binary, see §4.3** | PyPI wheel | ✅ + 📋 |
+| `networkx` | 3.7 | BSD-3-Clause | Graph analytics (paths, neighbourhoods) | PyPI wheel | ✅ |
+| `imagehash` | 4.3.2 | BSD-2-Clause | Perceptual hashing (pHash/dHash/aHash/wHash) | PyPI wheel | ✅ |
+| `pillow` | 13.0.0 | MIT-CMU | Image decode/encode for working copies | PyPI wheel | ✅ |
+| `passlib` | 1.7.4 | BSD | **REJECTED — not used.** Unmaintained (last release 2020), incompatible with `bcrypt ≥ 4.1` | — | 🚫 |
+| `pytest`, `pytest-asyncio`, `pytest-cov` | 9.2.0 / — | MIT | Test harness | PyPI wheel (dev extra) | ✅ |
+| `hypothesis` | 6.x | MPL-2.0 | Property-based tests (path containment, canonicalisation) | PyPI wheel (dev extra) | 📋 dev-only |
+| `ruff`, `mypy`, `bandit`, `pip-audit` | current | MIT / MIT / Apache-2.0 / Apache-2.0 | Lint, types, security scan | PyPI wheel (dev extra) | ✅ |
+| `httpx` | 0.28.1 | BSD-3 | HTTP client; used by the gated-egress test harness | PyPI wheel (dev extra) | ✅ |
+| `httpx2` | 2.16.0 | BSD-3 | **Required, not optional.** Starlette ≥ 1.x `TestClient` rejects plain `httpx` with a
+  deprecation warning, and the backend's `filterwarnings = ["error"]` turns that into a test
+  failure. Same lineage and licence as `httpx`. Verified against PyPI metadata 2026-11-10 | PyPI wheel (dev extra) | ✅ |
+| `types-Pygments` | 2.19.0.20250809 | MIT | Type stubs for mypy | PyPI wheel (dev extra) | ✅ |
 
-**Redistribution requirements.** If ExifTool is redistributed inside a published image, the applicable
-licence text must accompany it. Under the GPL reading this means providing the GPLv3 text and
-corresponding-source information for ExifTool itself (not for the platform, which is a separate
-program). Under the Artistic reading the obligations are lighter. **The image build includes the
-upstream licence text either way**, which satisfies both readings.
+**Not in the default set:** `ultralytics` (⚠️ AGPL-3.0), `PyMuPDF` (⚠️ AGPL-3.0/commercial),
+`pyexiftool` (see §4.1), `poppler-utils` python bindings (see §4.4).
 
-### 3.2 ffmpeg
+### 1.2 `ai_services/` — forensic engines
 
-| | |
+| Package | Version verified | Licence | Purpose | Status |
+|---|---|---|---|---|
+| `opencv-python-headless` | 5.0.0.93 | Apache-2.0 | CV primitives: decode, DCT, filtering, feature matching | ✅ (headless avoids GUI/X11 deps) |
+| `numpy` / `scipy` | 2.x / 1.x | BSD-3 / BSD-3 | Numerics, spectral analysis | ✅ |
+| `torch` | 2.15.0 | `Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND ISC AND MIT AND Zlib` (per PyPI `license_expression`) | DL runtime | ✅ all components permissive |
+| `torchvision` | 0.29.2 | **BSD-3-Clause (code)** | Detection backbones (RetinaNet/FCOS/SSD) | 🟡 **code cleared; pretrained WEIGHTS are a separate question — see §5.1** |
+| `pikepdf` | 10.18.0 | **MPL-2.0** | PDF structural forensics via QPDF: revisions, XRef, object streams | 📋 **approved default for PDF (D-002)** |
+| `qpdf` (bundled in pikepdf wheels) | — | Apache-2.0 | PDF transformation library pikepdf wraps | ✅ |
+| `pdfminer.six` | 20260107 | MIT | PDF text/layout extraction | ✅ |
+| `pypdf` | 7.0.1 | BSD-3-Clause | PDF metadata (`Info`), encryption flags | ✅ |
+| `pdfplumber` | 0.11.10 | MIT | Table/word extraction with coordinates | ✅ |
+| `easyocr` | 1.7.2 | Apache-2.0 (code) | OCR for documents and ALPR stage 2 | 🟡 code cleared; **model weights hosted separately — §5.3** |
+| `faster-whisper` | 1.2.1 | MIT | Default ASR engine (CTranslate2) | ✅ **weights explicitly MIT — §5.2** |
+| `openai-whisper` | 20250625 | MIT | Optional alternate ASR engine | ✅ **README states code *and* weights are MIT — §5.2** |
+| `ctranslate2` | 4.x | MIT | Inference runtime for faster-whisper | ✅ |
+| `librosa` / `soundfile` | 0.10.x / 0.12.x | ISC / BSD-3 | Audio loading and spectral features | ✅ |
+| `numpy`-based ELA/DCT/copy-move engines | in-repo | (repo licence, pending D-008) | Classical image forensics — **our own code, no third-party weights** | ✅ |
+| ByteTrack association logic | **ported into `ai_services/engines/detection/tracker.py`** | MIT (derived from `FoundationVision/ByteTrack`) | Multi-object tracking association | ✅ code · 🚫 **we do NOT ship their checkpoints — §5.4** |
+| `ultralytics` | 8.4.208 | **AGPL-3.0** | Detection + `.track()` wrapper | ⚠️ **excluded from default; `ENABLE_ULTRALYTICS=false`** |
+| `PyMuPDF` | 2.1 | **AGPL-3.0 or Artifex commercial** | Fast PDF text/rendering | ⚠️ **excluded from default; `ENABLE_AGPL_PYMuPDF=false`** |
+| `Megvii-BaseDetection/YOLOX` | — | **Apache-2.0** (verified from repo LICENSE) | Candidate permissive detector if torchvision proves insufficient | ✅ candidate — see §8.2 |
+| `open-mmlab/mmdetection` | — | **Apache-2.0** (verified) | Candidate permissive detector zoo | ✅ candidate — weights still need §5 review |
+| `openai/CLIP` | — | MIT (code) | Candidate image/text embeddings for similarity search | 🟡 weights = MIT per repo; **verify at fetch — §5.5** |
+
+### 1.3 Frontend — `frontend/` (npm, verified 2026-11-10)
+
+| Package | Version | Licence | Purpose | Status |
+|---|---|---|---|---|
+| `next` | 16.4.6 | MIT | App Router framework | ✅ |
+| `react` / `react-dom` | 19.3.1 | MIT | UI runtime | ✅ |
+| `typescript` | 7.0.2 | Apache-2.0 | Language | ✅ |
+| `tailwindcss` | 4.3.5 | MIT | Styling | ✅ |
+| `@tanstack/react-query` | 5.107.1 | MIT | Server-state cache | ✅ |
+| `zustand` | 5.1.0 | MIT | Client state | ✅ |
+| `cytoscape` | 3.34.4 | MIT | Evidence relationship graph rendering | ✅ |
+| `wavesurfer.js` | 8.0.5 | BSD-3-Clause | Audio waveform/spectrogram viewer | ✅ |
+| `playwright` | 1.65.0 | Apache-2.0 | E2E tests (dev) | ✅ |
+| `vitest` | 5.1.0 | MIT | Unit/component tests (dev) | ✅ |
+| Radix UI primitives | current | MIT | Accessible component primitives (**vendored into `components/ui`**, not installed as a dependency, so the code is auditable in-tree) | ✅ |
+| Map tiles / tile provider | — | — | **🚫 No third-party tile provider in v1.** Self-hosted tiles only (GEO-03) | 🚫 |
+
+Frontend total: **zero copyleft dependencies.** Enforced by the CI licence gate (§9).
+
+### 1.4 Infrastructure images
+
+| Image | Licence | Note | Status |
+|---|---|---|---|
+| `python:3.11-slim` | PSF + Debian components | Debian base carries mixed permissive licences; standard for container use | ✅ |
+| `node:22-alpine` | MIT + Alpine components | | ✅ |
+| `nginx:1.27-alpine` | BSD-2 | Digest-pinned | ✅ |
+| `pgvector/pgvector:pg16` | PostgreSQL Licence (permissive) + Postgres (PostgreSQL Licence) | Verified `NOASSERTION` on GitHub = the PostgreSQL Licence text | ✅ |
+| `redis:7-alpine` | MIT (redis-py) / **Redis 7 = RSALv2/SSPLv1 for Redis 8+; Redis 7.2 and earlier are BSD-3** | ⚖️ **We pin Redis 7.2.x (BSD-3).** Do not upgrade to Redis 8 without re-auditing — Redis 8 reverted to a tri-license including AGPLv3, which would be ⚠️. See §8.4. | ✅ with a pin |
+| `nvidia/cuda:12.x-runtime` | NVIDIA EULA (proprietary, redistributable runtime) | ⚖️ NVIDIA driver licence is proprietary; permitted for internal deployment, but **redistribution of images containing CUDA runtime is subject to the NVIDIA EULA** | ⚖️ |
+| `clamav/clamav` | GPL-2.0 | Optional, disabled by default, runs as a **separate process** over a socket | ⚠️ flag-gated |
+
+> **Redis is the single most important infrastructure pin in this document.** Redis 7.2 and earlier
+> are BSD-3-Clause. Redis 8 re-licensed under RSALv2/SSPLv1 and later added AGPLv3 as an option.
+> We pin **`redis:7.2-alpine`** and the CI licence gate fails on any `redis:8*` reference.
+
+### 1.5 Note on `psycopg` (LGPL with linking permission)
+
+`psycopg 3` is LGPL-3.0 **with an explicit exception permitting linking from non-free programs** (the
+same model as libpq itself, which is PostgreSQL-Licensed). Practically this is permissive for our use.
+It is recorded as 📋/⚖️ rather than ✅ because it is the one non-permissive SPDX identifier in the
+default backend set, and honesty requires flagging it. Alternative if counsel objects: `asyncpg`
+(Apache-2.0).
+
+---
+
+## 2. Copyleft components — register and containment
+
+Every component below is **excluded from the default dependency set** and reachable only through an
+explicit, audited `ENABLE_*` flag that defaults to `false`. Requirement: *"Never activate an AGPL
+component by default."*
+
+| ID | Component | Licence | Flag | Default | Verified licence text | Containment |
+|---|---|---|---|---|---|---|
+| C-1 | `ultralytics` (YOLO) | **AGPL-3.0** | `ENABLE_ULTRALYTICS` | `false` | LICENSE file = "GNU AFFERO GENERAL PUBLIC LICENSE Version 3" | Adapter module only; `import-linter` forbids imports elsewhere |
+| C-2 | `PyMuPDF` | **AGPL-3.0** / Artifex commercial | `ENABLE_AGPL_PYMuPDF` | `false` | PyPI: "Dual Licensed - GNU AFFERO GPL 3.0 or Artifex Commercial License" | Adapter module only |
+| C-3 | ExifTool binary | **GPL-3.0 file, dual Artistic/GPL grant** — see §4.1 | `ENABLE_EXIFTOOL` | `true` but **optional & removable**; see §4.1 | LICENSE = GPLv3 text; README = Perl dual licence | **Separate process**, JSON over a pipe, no linking |
+| C-4 | `poppler-utils` (`pdftoppm`, `pdftotext`) | **GPL-2.0+** | `ENABLE_POPPLER` | `false` | Debian package metadata | Separate process |
+| C-5 | ClamAV | **GPL-2.0** | `ENABLE_AV_SCAN` | `false` | Debian/upstream | Separate container, socket protocol |
+| C-6 | `ffmpeg`/`ffprobe` | **LGPL-2.1+** by default; **GPL** if built with `--enable-gpl` (x264/x265) | always required | LGPL build only | Debian `ffmpeg` package licence | Separate process; **we do not enable GPL codecs** — no x264/x265 encoding is required (we never re-encode evidence) |
+| C-7 | Redis 8.x | RSALv2/SSPLv1 (+ AGPLv3 option) | n/a | **pinned to 7.2 (BSD-3)** | — | Version pin + CI gate |
+
+### 2.1 Containment mechanisms (all four, per SYSTEM_ARCHITECTURE §8)
+
+1. **Process isolation** — C-3, C-4, C-5, C-6 are invoked as subprocesses/sockets with argument
+   lists (never `shell=True`) and structured output. No linking, no shared address space.
+2. **Flag-gated imports** — C-1, C-2 imports live behind `if settings.ENABLE_*:` in a single adapter
+   module each. `import-linter` fails the build if any other module imports them.
+3. **Permissive default implementation of the same interface** — every capability has a cleared
+   implementation (torchvision/YOLOX for detection, pikepdf+pdfminer for PDF, pure-Python EXIF/XMP
+   for metadata) so flipping a flag swaps implementations without touching services or tests.
+4. **CI licence gate** — `tools/license-check/` (§9) fails on any unexpected copyleft entry.
+
+> ⚖️ **This is engineering containment, not legal advice.** Whether process isolation is sufficient
+> for AGPL §13 in a hosted-service context, and whether ExifTool's Artistic election is available to
+> us, are legal questions. See §10.
+
+---
+
+## 3. Substitution register (requirement: never silently replace a dependency)
+
+The brief named specific technologies. Where the approved licensing decision required a different
+package, the substitution and its trade-offs are recorded here — **no capability is dropped**.
+
+| Capability named in brief | Package named | Default substitute | Licence of substitute | Technical trade-off | Flag to use the named package |
+|---|---|---|---|---|---|
+| YOLO object detection | `ultralytics` | `torchvision` detection models (RetinaNet/FCOS/SSD) | BSD-3 code · 🟡 weights (§5.1) | Less convenient API; no bundled tracking; mAP-per-effort is lower than YOLOv8/11 for the same tuning time; **weights need a licence decision** | `ENABLE_ULTRALYTICS=true` (AGPL) |
+| Object detection (fallback) | — | `YOLOX` (Apache-2.0) | Apache-2.0 | Extra repo dependency; checkpoints still need §5 review | n/a |
+| Multi-object tracking | ByteTrack | **Ported MIT association logic** in `ai_services/engines/detection/tracker.py` | MIT | We maintain the port ourselves (~300 lines); we must NOT import `ultralytics.track()` (AGPL) and must NOT ship ByteTrack's MOT-trained checkpoints (§5.4) | n/a |
+| PDF parsing | `PyMuPDF` | **`pikepdf` (MPL-2.0) + `pdfminer.six` (MIT) + `pypdf` (BSD-3)** | MPL/MIT/BSD | **Better** for forensic revision/XRef analysis (QPDF exposes incremental saves precisely). **Worse** for rasterising pages to images — needs `pdftoppm` (C-4) or the AGPL flag. Slower text extraction on very large PDFs. | `ENABLE_AGPL_PYMuPDF=true` |
+| Metadata extraction | ExifTool | ExifTool **kept** (optional) + pure-Python fallback (Pillow/pikepdf/ffprobe + a small EXIF/XMP reader) | see §4.1 | Fallback covers common tags only; **materially worse** on obscure formats. This is why ExifTool stays enabled by default *as an option* rather than being removed. | `ENABLE_EXIFTOOL=false` disables it |
+| ASR | Whisper | `faster-whisper` (MIT) default, `openai-whisper` (MIT) optional | MIT both | faster-whisper is quicker on CPU; openai-whisper matches the original reference implementation more closely | both available |
+| OCR | EasyOCR | `easyocr` (Apache-2.0) | Apache-2.0 | No substitution needed | n/a |
+| Report PDF | ReportLab | `reportlab` (BSD) | BSD | No substitution needed | n/a |
+| Vector search | pgvector | `pgvector` (PostgreSQL Licence) | permissive | No substitution needed | n/a |
+
+**Requirement satisfied:** nothing was silently replaced. Each row names the trade-off, and each
+copyleft original remains available behind a flag.
+
+---
+
+## 4. System binaries (downloaded/installed separately from Python packages)
+
+### 4.1 ExifTool — dual-licence nuance ⚖️ *(important, corrected during this audit)*
+
+Two upstream sources disagree, and both were retrieved on 2026-11-10:
+
+| Source | Content |
 |---|---|
-| **Licence** | **LGPL-2.1+** as distributed, *unless* built `--enable-gpl` |
-| **Purpose** | Container demuxing, frame and audio extraction (M11, M12) |
-| **Distribution** | System package in `worker-cpu` / `worker-gpu`; separate process |
+| `api.github.com/repos/exiftool/exiftool` licence detection | **GPL-3.0** |
+| `LICENSE` file in the repository | Full text of the **GNU General Public License v3** |
+| `README` → "COPYRIGHT AND LICENSE" | *"Copyright 2003-2026, Phil Harvey. This is free software; you can redistribute it and/or modify it under the same terms as Perl itself (**either the Perl Artistic License or GPL**)."* |
 
-**Critical constraint:** we **never re-encode evidence**. Frame extraction and stream demuxing are
-LGPL operations. Because no re-encoding occurs, **no GPL-licensed codec (e.g. x264) is required**, and
-the `--enable-gpl` build is avoided. This keeps ffmpeg at LGPL-2.1+ and is a deliberate design
-constraint, not an accident — re-encoding evidence would also be forensically wrong.
+**Interpretation:** ExifTool appears to be **dual-licensed** in the standard Perl manner — the
+licensee may elect **either** the Artistic License **or** the GPL. The repository ships the GPL-3
+text (which is what GitHub's detector reads), while the author's own README grants the Artistic
+alternative. The Perl Artistic License 1.0 is a weak-copyleft/permissive-style licence far closer to
+our needs than GPL-3.
 
-### 3.3 Other system tooling
+**Why this matters:** if the Artistic election is available to us, the GPL-3 exposure documented in
+D-003 may be **substantially reduced or eliminated** for ExifTool use.
 
-| Tool | Licence | Use | Notes |
+**Action required (⚖️ legal review, item L-1):** confirm the Artistic election is available and
+record the elected licence in this audit before distribution. Until confirmed, we treat ExifTool
+conservatively as GPL-3 and keep it (a) optional, (b) subprocess-isolated, (c) removable via
+`ENABLE_EXIFTOOL=false` with a tested pure-Python fallback.
+
+**Distribution requirements if ExifTool is bundled in an image:**
+- Ship the ExifTool licence text and copyright notice inside the image (`/usr/share/doc/exiftool/`).
+- State in `THIRD_PARTY_LICENSES.md` (generated, §9) that ExifTool is a separate program invoked as a
+  subprocess, and name the elected licence.
+- Pin the ExifTool version and record its SHA-256 in `models.lock.json` (binaries are audited as
+  artifacts, §7).
+- Prefer installing from the **distribution package** (`apt install libimage-exiftool-perl`) over
+  vendoring the tarball, so the distro's licence metadata and updates apply.
+
+**Deployment considerations:** ExifTool parses hostile input by design. It runs in the media worker
+container only, on a read-only working copy, with `--` argument termination, a hard timeout, resource
+limits, no shell, and no network egress.
+
+### 4.2 ffmpeg / ffprobe
+LGPL-2.1+ in standard distribution builds; becomes GPL if built with `--enable-gpl` (x264/x265).
+**We use the LGPL build and never enable GPL codecs** — TruthLens X never re-encodes evidence
+(AP-1), so no GPL encoder is needed. We use `ffprobe` for stream metadata and `ffmpeg` only for
+audio-track **extraction** (stream copy, no transcode). Record the installed build's
+`--enable-*` flags at image build time (`ffmpeg -buildconf` output stored in the image SBOM).
+
+### 4.3 libmagic (`file`)
+BSD-2-Clause-ish (the `file` utility). `python-magic` is an MIT wrapper requiring the shared library.
+Install `libmagic1` from the distro. ✅
+
+### 4.4 poppler-utils
+GPL-2.0+. Only needed to rasterise PDF pages to images. `ENABLE_POPPLER=false` by default; when
+disabled, page rasterisation is unavailable and OCR of scanned pages falls back to extracting
+embedded images with pikepdf (which covers most scanned-PDF cases). ⚠️ flag-gated.
+
+### 4.5 NVIDIA driver / CUDA runtime ⚖️
+Proprietary NVIDIA EULA, redistributable under its terms. Required only for the GPU worker. Record
+the exact driver and CUDA runtime versions in the deployment manifest; **do not redistribute** images
+containing CUDA outside the EULA's terms. Internal on-prem deployment (our chosen target, D-005) is
+the least problematic case.
+
+---
+
+## 5. Artifact register: weights, checkpoints, models
+
+> **Audited separately from packages, per requirement #9.**
+
+| ID | Artifact | Upstream code licence | **Weight licence (verified statement)** | Training data | Our use | Status |
+|---|---|---|---|---|---|---|
+| W-1 | Whisper ASR checkpoints (`tiny`…`large-v3`) | MIT | **MIT — explicitly stated**: *"Whisper's code and model weights are released under the MIT License"* (openai/whisper README, verified 2026-11-10) | 680k h of web audio (not released) | Default ASR | ✅ **cleared — code AND weights** |
+| W-2 | faster-whisper / CTranslate2 conversions | MIT | MIT conversions of W-1 | as W-1 | Default ASR runtime | ✅ inherits W-1 |
+| W-3 | `torchvision` **classification** weights (ResNet, etc.) | BSD-3 | **Not separately licensed.** torchvision docs: pretrained models *"may have their own licenses or terms and conditions derived from the dataset used for training… your responsibility to determine whether you have permission"* | **ImageNet (ILSVRC)** — Terms of Access are **non-commercial research** | **🚫 NOT USED.** No classification weights in TruthLens X | 🚫 excluded |
+| W-4 | `torchvision` **detection** weights (RetinaNet/FCOS/SSD) | BSD-3 | Same warning as W-3 | **COCO** — annotations CC BY 4.0; images are Flickr-sourced with mixed CC licences (some NC) | Candidate default detector | 🟡 ⚖️ **L-2: legal review required before shipping these weights.** Mitigation in §5.6 |
+| W-5 | `YOLOX` checkpoints | Apache-2.0 | Apache-2.0 (repo states weights under the same licence) | COCO | Fallback detector | 🟡 ⚖️ same COCO question as W-4 (L-2) |
+| W-6 | `mmdetection` checkpoints | Apache-2.0 | Per-model; **many are COCO-pretrained** | COCO | Candidate | 🟡 ⚖️ L-2 |
+| W-7 | EasyOCR detection + recognition models | Apache-2.0 (code) | ❓ **Hosted separately** (JaidedAI release assets). Licence not stated in the README retrieved. | Mixed scene-text corpora | OCR / ALPR stage 2 | ❓ **must be verified at fetch time**; recorded in `models.lock.json` with `licence`, `licence_source_url`, `licence_verified_at`. **Do not fetch until verified** (L-3) |
+| W-8 | `openai/CLIP` weights | MIT | MIT per repo; trained on **WIT-400M** (not released) | WIT-400M | Candidate image/text embeddings for similarity search | 🟡 verify at fetch (L-4) |
+| W-9 | ByteTrack released checkpoints | MIT (code) | Code MIT; **checkpoints trained/evaluated on MOT17/MOT20** | **MOT Challenge = CC BY-NC-SA 3.0 (non-commercial)** | **🚫 NOT SHIPPED.** We port the *association algorithm* and feed it detections from our own detector | 🚫 excluded |
+| W-10 | Face detection / landmark models (candidate: `insightface`, `facenet-pytorch`, MediaPipe) | varies | ⚠️ **`insightface` models are explicitly non-commercial** (MIT code, non-commercial model licence); MediaPipe is Apache-2.0 with model terms; `facenet-pytorch` MIT code, VGGFace2 dataset is **research-only** | VGGFace2 etc. | Face region detection for `person_candidate` clustering | ❓ ⚖️ **prefer a permissive option (MediaPipe Apache-2.0 / `retinaface` MIT / torchvision SSD-faces).** **L-5: no face-recognition model may be added without a written licence check**, and face *identification* remains out of scope regardless (PRD §1.2) |
+| W-11 | Deepfake/synthetic-media detection checkpoints (any third-party) | varies | ⚠️ Frequently **research-only / non-commercial** (e.g. many published detectors ship weights restricted to academic use) | FaceForensics++ (**non-commercial research**), Celeb-DF, DFDC (**CC BY-NC 4.0**) | Deepfake indicators (M14) | 🚫 **v1 policy: ship NO third-party deepfake weights.** M14 implements **classical signal-processing indicators** (DCT/FFT spectral analysis, boundary/blending statistics, temporal flicker) that require **no trained weights at all**. Any learned detector added later requires L-5 review and its own ADR |
+| W-12 | Speaker diarisation models (`pyannote.audio`) | MIT (code) | ⚠️ **pyannote pretrained models require accepting conditions and are gated**; several are research-oriented | DIHARD/VoxConverse etc. | Diarisation (AUD-03, `Should`) | ❓ ⚖️ L-6 — if it cannot be cleared, diarisation ships with a simpler energy/embedding clustering implementation of our own, or is deferred |
+| W-13 | ALPR-specific detection/OCR weights | varies | ⚠️ Many published ALPR models are research-only | OpenALPR-era data, CRPD (**research**) | ALPR (M13) | 🟡 **Plan: general detector (W-4/W-5) + EasyOCR (W-7) + our own format validators. No third-party ALPR-specific weights in v1.** |
+
+### 5.1 Why W-3 and W-9 are hard exclusions
+
+These are the two cases where a permissive package would have silently dragged in restricted
+artifacts:
+
+- **W-3 (ImageNet classification weights):** we have no need for image classification, so we simply
+  never load them. Recorded so a future contributor does not "helpfully" add one.
+- **W-9 (ByteTrack MOT checkpoints):** the *algorithm* is what we want, and it is MIT. The
+  *checkpoints* are MOT-trained and MOT is non-commercial. We port the algorithm and supply our own
+  detections. This is the single clearest illustration of the requirement that artifacts be audited
+  separately from code.
+
+### 5.2 The M14 consequence (this changed the roadmap)
+
+Because published deepfake detectors are overwhelmingly research-licensed and their evaluation
+datasets are non-commercial (W-11), **milestone M14 is specified to use classical, weight-free
+signal-processing indicators** rather than a pretrained deepfake classifier. This is *also* the more
+honest design: a classical indicator's behaviour can be explained and its limits stated precisely,
+whereas a black-box classifier trained on FaceForensics++ generalises poorly to real casework and
+cannot support a defensible limitations statement. Recorded in **ADR-0023** and PRD **DF-01…DF-09**.
+
+### 5.3 `models.lock.json` — the artifact contract
+
+Every artifact in the store must be described by a lock entry **before** it may be fetched or loaded:
+
+```jsonc
+{
+  "schema_version": "1.0",
+  "artifacts": [
+    {
+      "id": "whisper-large-v3",
+      "family": "whisper", "version": "large-v3", "task": "asr",
+      "source_url": "https://…",
+      "sha256": "<64 hex>",
+      "size_bytes": 3095042018,
+      "code_licence": "MIT",
+      "weights_licence": "MIT",
+      "weights_licence_source": "https://github.com/openai/whisper#license",
+      "weights_licence_verified_at": "2026-11-10",
+      "weights_licence_verified_by": "architect",
+      "training_datasets": [{"name": "OpenAI web audio corpus", "licence": "not released", "note": "weights granted MIT by author"}],
+      "commercial_use_cleared": true,
+      "legal_review_id": null,
+      "allow_fetch": true
+    }
+  ]
+}
+```
+
+Enforcement (M13/M19): the loader refuses any artifact with `allow_fetch != true`,
+`weights_licence` empty, or a SHA-256 mismatch — **fail closed, never fall back** (AR-7). The CI
+licence gate parses this file and fails if any entry has `commercial_use_cleared: false` while the
+deployment profile is commercial.
+
+### 5.4 Rule: no artifact enters the tree without a lock entry
+
+`models/` is git-ignored. A new weight file requires: a lock entry with both licence fields and a
+verification date, a legal-review ID if ⚖️, an ADR if it changes capability, and an entry in this
+audit. This is a **pull-request checklist item**, not a convention.
+
+---
+
+## 6. Dataset register
+
+| ID | Dataset | Licence / terms | Used for | In v1? | Status |
+|---|---|---|---|---|---|
+| DS-1 | **COCO** | Annotations CC BY 4.0; images Flickr-sourced, mixed CC (incl. NC) | Pretrained detection weights (W-4/5/6) | Indirectly, via weights | ⚖️ L-2 |
+| DS-2 | **ImageNet / ILSVRC** | Non-commercial research Terms of Access | torchvision classification weights | **No** | 🚫 excluded |
+| DS-3 | **MOT17 / MOT20** | CC BY-NC-SA 3.0 | ByteTrack checkpoints | **No** | 🚫 excluded |
+| DS-4 | **FaceForensics++ / Celeb-DF / DFDC** | Non-commercial research / CC BY-NC | Deepfake detector training | **No** (see §5.2) | 🚫 excluded |
+| DS-5 | **VGGFace2** | Research-only, non-commercial | Face-recognition weights | **No** (face *identification* is out of scope) | 🚫 excluded |
+| DS-6 | **GeoNames** gazetteer | CC BY 4.0 (attribution required) — ❓ not verifiable from an allowed host | Offline reverse geocoding (GEO-05) | Optional, flag-gated | ❓ **L-7: verify licence and attribution requirement at download; if bundled, include the CC BY attribution notice and the data's own licence file** |
+| DS-7 | **Our internal evaluation set** | Ours; synthetic where possible | Measuring our own TPR/FPR (AR-6) | Yes | ✅ must contain **no** third-party-copyrighted media and **no** real personal data (TESTING_STRATEGY §12) |
+| DS-8 | JPEG **quantisation-table reference signatures** | Facts derived from public encoder behaviour; some tables are documented in vendor SDK docs | DQT fingerprinting (IMG-03) | Yes | 🟡 record provenance per row in `dqt_signatures` (`source`, `source_url`, `retrieved_at`). Tables are short numeric arrays — treat as factual data, but document provenance |
+| DS-9 | Synthetic test fixtures (`tools/fixtures/`) | Ours, generated deterministically | All CI testing | Yes | ✅ no third-party media, no real personal data |
+
+---
+
+## 7. Bundled binaries & data register
+
+| Item | Source | Licence | Verification |
 |---|---|---|---|
-| `libmagic` / `file` | BSD-2-style | MIME detection at ingest | Permissive, no obligation |
-| `poppler-utils` | **GPL-2.0+** | PDF rasterisation | Behind `ENABLE_POPPLER=true`, subprocess only — see [ADR-0002](adr/ADR-0002-pikepdf-default-pdf-stack.md) |
-| ClamAV | **GPL-2.0** | Malware scanning | Separate daemon over TCP, not a derivative work; behind `ENABLE_AV_SCAN=true` — see [ADR-0014](adr/ADR-0014-clamav-included-but-disabled-by-default.md) |
-| NVIDIA CUDA runtime | **Proprietary EULA** — finding **L-9** | GPU inference | `worker-gpu` only. Redistribution is permitted under NVIDIA's terms but the EULA must be surfaced to the operator; it is **not** open source and must never appear in the default (CPU) image |
+| ExifTool binary | distro package `libimage-exiftool-perl` (preferred) | see §4.1 ⚖️ | pin version; record package SHA-256 in the image SBOM |
+| ffmpeg / ffprobe | distro package | LGPL-2.1+ (§4.2) | record `-buildconf` in the SBOM; assert no `--enable-gpl` |
+| libmagic | distro package | BSD-2-style | pin |
+| poppler-utils | distro package | GPL-2.0+ | **only when `ENABLE_POPPLER=true`** |
+| ClamAV + virus definitions | distro/upstream | GPL-2.0 (code); definitions under their own terms | **only when `ENABLE_AV_SCAN=true`**; definitions are updated data — record their licence too |
+| Report fonts | bundled in `backend/app/reporting/fonts` | ⚖️ **must be an embeddable, redistributable licence** (e.g. DejaVu — BSD-style, Liberation — SIL OFL, Noto — OFL). **No proprietary fonts.** | record per-font licence in `fonts/LICENCES.md` (M18) |
+| GeoNames subset | DS-6 | ❓ L-7 | record at download |
 
 ---
 
-## 4. Backend Python dependencies — default graph
+## 8. Notable decisions taken during this audit
 
-All versions verified on PyPI, 2026-11-10. **Nothing below is AGPL, SSPL or RSAL.**
+### 8.1 Detection strategy (feeds ADR-0001)
+Default: **`torchvision` detection models**, with the weight-licence question (W-4/L-2) resolved by
+one of: (a) counsel clears COCO-pretrained weights for our use; (b) we **train/fine-tune nothing** and
+ship detection as an *operator-supplied* model (the deployment provides weights it is licensed for);
+or (c) use YOLOX (W-5, Apache-2.0, same COCO question). **Recommended: (b) as the shipped default** —
+TruthLens X ships *no* detection weights; the operator installs and registers them via the model
+registry, accepting the weight licence at that point. This removes the entire COCO question from our
+distribution while keeping full functionality. Recorded as **ADR-0001**, consequence C-1b.
 
-| Package | Version | Licence | Purpose | Milestone |
-|---|---|---|---|---|
-| `fastapi` | 0.162.3 | MIT | HTTP API | M1 |
-| `pydantic` | 2.14.3 | MIT | Validation, schemas | M1 |
-| `pydantic-settings` | 2.16.2 | MIT | Typed configuration | M1 |
-| `uvicorn` | 0.40.0 | BSD-3 | ASGI server | M1 |
-| `structlog` | 25.5.0 | MIT/Apache-2.0 | Structured logging + redaction | M1 |
-| `sqlalchemy` | 2.1.8 | MIT | ORM / Core | M2 |
-| `alembic` | 1.20.1 | MIT | Migrations | M2 |
-| `psycopg` (3) | current | **LGPL-3.0 with explicit linking permission** | PostgreSQL driver | M2 |
-| `celery` | 5.7.0 | BSD-3 | Background processing | M7 |
-| `redis-py` | 8.1.0 | MIT | Broker client, locks, denylist | M7 |
-| `pyjwt` | 2.15.1 | MIT | JWT | M3 |
-| `argon2-cffi` | 25.1.0 | MIT/Apache-2.0 | Password hashing (argon2id) | M3 |
-| `python-multipart` | 0.0.33 | Apache-2.0 | Upload parsing | M5 |
-| `httpx` | 0.28.1 | BSD-3 | Gated outbound calls only | M17 |
-| `httpx2` | 2.16.0 | BSD-3 | **Dev/test only** — required by starlette ≥1.x `TestClient` | M1 |
-| `pikepdf` | 10.18.0 | **MPL-2.0** | PDF structure (QPDF binding) | M10 |
-| `pdfminer.six` | 20260107 | MIT | PDF text/layout | M10 |
-| `pdfplumber` | 0.11.10 | MIT | PDF tables | M10 |
-| `pypdf` | 7.0.1 | BSD-3 | PDF metadata, encryption | M10 |
-| `Pillow` | 13.0.0 | MIT-CMU (HPND) | Image handling | M9 |
-| `opencv-python-headless` | 5.0.0.93 | Apache-2.0 | Image/video processing | M9, M12 |
-| `numpy` / `scipy` | current | BSD-3 | Signal processing, indicators | M14 |
-| `imagehash` | 4.3.2 | BSD-3 | Perceptual hashing | M15 |
-| `networkx` | 3.7 | BSD-3 | Relationship graph | M16 |
-| `python-magic` | 0.4.27 | MIT | MIME via libmagic | M5 |
-| `reportlab` | 5.1.0 | BSD-3 | PDF report generation | M18 |
-| `faster-whisper` | 1.2.1 | MIT | Default ASR (CTranslate2) | M11 |
-| `openai-whisper` | 20250625 | MIT | Optional ASR | M11 |
-| `torch` | 2.15.0 | BSD-3 | Inference runtime (**not in `api`**) | M9+ |
-| `torchvision` | 0.29.2 | BSD-3 | Detection operators — **code only, no weights shipped** | M13 |
-| `pytest` / `pytest-asyncio` | 9.2.0 / 1.3.0 | MIT | Testing | M1 |
-| `ruff` | 0.14.10 | MIT | Lint + format | M1 |
-| `playwright` | 1.65.0 | Apache-2.0 | E2E | M21 |
+### 8.2 Fallback detector
+If torchvision detection proves inadequate in M13 evaluation, the fallback is **YOLOX (Apache-2.0)**,
+not Ultralytics. The switch is an adapter change; the engine interface is identical.
 
-### 4.1 Rejected dependencies
+### 8.3 PDF strategy (feeds ADR-0002)
+`pikepdf` (MPL-2.0) is the primary structural engine. MPL is file-level copyleft: our obligations
+extend only to modifications of MPL-covered files, and we modify none. Page rasterisation is the one
+gap → `ENABLE_POPPLER` (GPL subprocess) or `ENABLE_AGPL_PYMuPDF`, both off by default, with
+embedded-image extraction as the cleared fallback for scanned-PDF OCR.
 
-| Package | Licence | Why rejected |
+### 8.4 Redis pin (feeds ADR-0022)
+`redis:7.2-alpine` (BSD-3), pinned. The CI licence gate fails on `redis:8*` and `redis:7.3*`.
+Upgrading Redis is a **licence event**, not a routine patch bump, and requires an ADR amendment plus a
+re-audit of this document. See **ADR-0022** for the full decision, the Valkey fallback path, and the
+verification tests.
+
+---
+
+## 9. Enforcement — how this document stays true
+
+| Gate | Where | Behaviour |
 |---|---|---|
-| `ultralytics` 8.4.208 | **AGPL-3.0** — verified: `LICENSE` reads *"GNU AFFERO GENERAL PUBLIC LICENSE Version 3"* | Network copyleft would reach the whole service. Available only behind `ENABLE_ULTRALYTICS=true`. |
-| `PyMuPDF` 2.1 | **Dual AGPL-3.0 / Artifex commercial** — verified from PyPI metadata | Behind `ENABLE_AGPL_PYMuPDF=true` only; [ADR-0002](adr/ADR-0002-pikepdf-default-pdf-stack.md) |
-| `passlib` 1.7.4 | BSD, **but unmaintained** — last release 2020, breaks against `bcrypt>=4.1` | Rejected on maintenance grounds, not licence. `argon2-cffi` + direct `bcrypt` used instead. |
-
-### 4.2 Database driver — a note on `psycopg`
-
-`psycopg` 3 is **LGPL-3.0**, but LGPL's linking permission explicitly covers use as a library from a
-non-LGPL program — the same model as `libpq` itself, which every PostgreSQL client uses. No copyleft
-reaches platform code. **If counsel objects to any LGPL in the graph, `asyncpg` (Apache-2.0) is the
-documented drop-in alternative.** This substitution is recorded here rather than made silently, per
-[ADR-0001](adr/ADR-0001-permissive-default-dependency-set.md) §8.
+| `tools/license-check/` | CI, every PR | Parses the resolved dependency graph (Python + npm), compares each SPDX id against an allowlist (permissive + MPL + LGPL-with-exception), and **fails** on any unexpected AGPL/GPL/SSPL/RSAL entry in the default set |
+| Flag audit | CI | Asserts every `ENABLE_*` copyleft flag defaults to `false` in `.env.example` and `Settings` |
+| `import-linter` | CI | Fails if any module outside the designated adapters imports a copyleft package |
+| `models.lock.json` validation | CI + runtime loader | Fails on a missing `weights_licence`, missing verification date, `allow_fetch=false`, or SHA-256 mismatch |
+| SBOM | Release CI | CycloneDX SBOM published as a build artifact for every image; includes system binaries |
+| `THIRD_PARTY_LICENSES.md` | Generated at build | Full licence texts for everything in the image, including subprocess-invoked binaries |
+| Redis version pin | CI | Fails on any `redis:8*` image reference |
+| Image digest pinning | CI | No `latest` tags; base images pinned by digest |
+| Secret scanner | CI | `gitleaks` — blocks committed credentials |
 
 ---
 
-## 5. Model weights and datasets — audited **separately**
+## 10. Open items requiring legal review ⚖️
 
-> **The central rule of this section** ([ADR-0001](adr/ADR-0001-permissive-default-dependency-set.md) §9):
-> a permissive Python package does **not** make its weights permissive. Weights, datasets, pretrained
-> checkpoints and downloaded binaries are each audited on their own terms.
-
-### 5.1 torchvision pretrained weights — finding **L-2**, **not clearly BSD**
-
-`torchvision` code is BSD-3. Its **weights are not covered by that licence.** Verified by reading
-`docs/source/models.rst` in the upstream repository, which states:
-
-> *"The pre-trained models provided in this library may have their own licenses or terms and
-> conditions derived from the dataset used for training. It is your responsibility to determine
-> whether you have permission to use the models for your use case."*
-
-Consequences, by weight family:
-
-| Weight family | Trained on | Terms | Decision |
+| ID | Question | Blocks | Owner |
 |---|---|---|---|
-| Classification | ImageNet | **Non-commercial research terms** | **Excluded entirely.** Never shipped, never downloaded, never used. |
-| Detection | COCO | Dataset terms require review — **L-2 open** | **Not shipped.** Detection uses **operator-supplied weights**; the platform provides the code path and the operator provides artifacts they have cleared. |
+| **L-1** | Is the **Perl Artistic License election** available to us for ExifTool, given the README grant versus the GPL-3 LICENSE file? Which licence do we elect and record? | Distribution of images containing ExifTool (M8) | Counsel |
+| **L-2** | Are **COCO-pretrained detection weights** (torchvision/YOLOX/mmdetection) usable in a commercial/internal forensic deployment? Does §8.1 option (b) — operator-supplied weights — fully resolve it? | Shipping detection weights (M13) | Counsel |
+| **L-3** | What licence applies to **EasyOCR model weights** (distributed separately from the Apache-2.0 code)? | ALPR/document OCR (M10/M13) | Counsel + upstream inquiry |
+| **L-4** | Confirm **CLIP weights** are MIT and usable, given WIT-400M was never released. | Similarity search embeddings (M15) | Counsel |
+| **L-5** | Establish the standing rule for **face-related models** (many are non-commercial). Which permissive face *detector* (not recognizer) may we use? | Face region detection (M9) | Counsel + architect |
+| **L-6** | Are **pyannote.audio** pretrained diarisation models usable? If not, diarisation is deferred or reimplemented. | Audio diarisation (M11, `Should`) | Counsel |
+| **L-7** | Confirm **GeoNames** licence (CC BY 4.0?) and the exact attribution text required if bundled. | Offline reverse geocoding (M8, optional) | Counsel |
+| **L-8** | Is **process isolation sufficient** to avoid AGPL §13 obligations for the flag-gated components (C-1, C-2) if the platform is hosted for third parties? | Any decision to enable the flags | Counsel |
+| **L-9** | Does bundling the **NVIDIA CUDA runtime** in a distributed image comply with the NVIDIA EULA for our intended deployment? | GPU worker image distribution (M13) | Counsel |
+| **L-10** | Which **project licence** will TruthLens X itself use? (D-008: deliberately unlicensed for now; no `LICENSE` file added.) | Any external distribution | Owner |
+| **L-11** | Which **fonts** may be embedded in generated reports (must be redistributable + embeddable)? | Report generation (M18) | Counsel |
 
-> **Dead end recorded:** `pytorch/vision/contents/torchvision/models/README.md` and
-> `references/README.md` both return **404**. The disclaimer lives in `docs/source/models.rst`. A
-> reviewer re-checking this finding must look there.
-
-### 5.2 Deepfake detection weights — **none shipped**, by decision
-
-No third-party deepfake detector weights are shipped or downloaded. Published detectors are typically
-trained on datasets with research-only or unstated terms, and a black-box classifier score invites
-exactly the overclaiming the owner forbids. M14 therefore implements **classical weight-free
-indicators** — see [ADR-0023](adr/ADR-0023-weight-free-deepfake-indicators.md) for the full list and
-rationale.
-
-### 5.3 Whisper weights — **MIT, cleared**
-
-Verified from the `openai/whisper` README, verbatim: *"Whisper's code and model weights are released
-under the MIT License."* Both `openai-whisper` and `faster-whisper` consume these weights. This is
-unusually explicit for a model family and was a decisive factor in [ADR-0017](adr/ADR-0017-faster-whisper-default-asr.md).
-
-### 5.4 ByteTrack — MIT code, **non-commercial checkpoints**
-
-| Artifact | Source | Licence | Decision |
-|---|---|---|---|
-| Algorithm / reference code | `FoundationVision/ByteTrack` (moved from `ifzhang/ByteTrack`) | **MIT** — verified from `LICENSE` | **Ported** into `ai_services/engines/detection/tracker.py` |
-| Released checkpoints | Benchmarked on MOT17 / MOT20 | **CC BY-NC-SA 3.0 — non-commercial** | **Never shipped, never downloaded** |
-
-Porting MIT code and refusing NC checkpoints gives full tracking capability with no licence exposure.
-Note that `ultralytics`' convenient `.track()` wrapper is AGPL and is not used.
-
-> **Dead end recorded:** `api.github.com/repos/ifzhang/ByteTrack` returns **301**. Use
-> `FoundationVision/ByteTrack`, `api.github.com/repositories/400476704`, or `curl -sL`.
-
-### 5.5 Face detection / recognition weights — finding **L-5**
-
-**No face-recognition model is used anywhere in the platform.** This avoids both an unverified weights
-licence and the substantially heavier legal questions raised by biometric identification of people.
-Face *detection* (locating a face region, not identifying a person) is used in M9 for crop and
-landmark work; candidate weights could not be licence-verified from the audit environment, so **L-5 is
-open** and M9 ships with operator-supplied artifacts only.
-
-### 5.6 Other weight/dataset findings
-
-| Finding | Subject | Status | Consequence |
-|---|---|---|---|
-| **L-3** | EasyOCR model weights | **Unverified** | OCR ships gated; weights operator-provisioned with recorded provenance |
-| **L-6** | `pyannote` diarisation models | **Unverified** — known to require acceptance of gated terms | Diarisation **disabled** in v1; enabling needs its own flag and verification |
-| **L-7** | Gazetteer dataset (GeoNames or equivalent) | **Unverified** | [ADR-0015](adr/ADR-0015-offline-gazetteer-disabled-by-default.md): **disabled by default**, attribution mandatory if enabled |
-| **L-9** | NVIDIA CUDA runtime | Proprietary EULA, terms known | `worker-gpu` only; EULA surfaced to the operator; never in the default CPU image |
-| **L-11** | Report fonts | Embeddability + redistributability required | DejaVu (BSD-style) or Liberation/Noto (SIL OFL) only — [ADR-0019](adr/ADR-0019-report-manifest-hashing-with-optional-crypto-signing.md) |
-
-> **Dead end recorded — do not repeat:** `api.github.com/repos/dr5hn/countries-states-cities-database`
-> returns **ODbL**, but that was a **wrong-repo probe**. It is *not* the gazetteer under consideration
-> and its licence says nothing about **L-7**. In particular, **CC BY 4.0 must not be asserted as fact**
-> for the gazetteer dataset.
-
-### 5.7 Permissively licensed alternatives that were verified
-
-Confirmed during the audit and available as documented fallbacks:
-
-| Project | Licence | Verified |
-|---|---|---|
-| `Megvii-BaseDetection/YOLOX` | **Apache-2.0** | Yes — the documented permissive YOLO fallback |
-| `open-mmlab/mmdetection` | **Apache-2.0** | Yes |
-| `openai/CLIP` | **MIT** | Yes — code only; weights separately audited |
-| `SYSTRAN/faster-whisper` | **MIT** | Yes |
+**No item above may be closed by an engineer alone.** Until L-1…L-11 are answered, the platform
+defaults to the most conservative configuration: no detection weights shipped, no deepfake weights,
+no face-recognition model, no ImageNet weights, no MOT checkpoints, Redis 7.2, ExifTool treated as
+GPL-3 and subprocess-isolated, and all copyleft flags off.
 
 ---
 
-## 6. Frontend dependencies
+## 11. Change control
 
-All verified on the npm registry, 2026-11-10. **Zero copyleft in the frontend graph.**
-
-| Package | Version | Licence | Purpose |
-|---|---|---|---|
-| `next` | 16.4.6 | MIT | Framework (App Router, standalone output) |
-| `react` / `react-dom` | 19.3.1 | MIT | UI |
-| `typescript` | 7.0.2 | Apache-2.0 | Language |
-| `tailwindcss` | 4.3.5 | MIT | Styling |
-| Radix UI primitives | current | MIT | Accessible headless components |
-| `@tanstack/react-query` | 5.107.1 | MIT | Server state |
-| `@tanstack/react-table` | current | MIT | Tables |
-| `zustand` | 5.1.0 | MIT | Client state |
-| `cytoscape` | 3.34.4 | MIT | Relationship graph |
-| `wavesurfer.js` | 8.0.5 | BSD-3 | Audio waveform |
-| `vitest` | 5.1.0 | MIT | Unit tests |
-| `@axe-core/playwright` | current | MPL-2.0 | Accessibility testing (**dev only**, file-level copyleft, no distribution impact) |
-
-Vendored `shadcn`-style components retain upstream MIT copyright notices in file headers, as MIT
-requires — see [ADR-0016](adr/ADR-0016-radix-primitives-with-vendored-ui-components.md).
+- Adding, removing, or upgrading any dependency requires updating this document **in the same PR**.
+- A licence *change* upstream (as with Redis 7→8) is treated as a breaking change requiring an ADR.
+- The `Verification date` at the top must be updated whenever a row is re-checked.
+- This document is regenerated-in-part by `tools/license-check/` (the package/version/licence
+  columns), but the ⚖️ analysis, substitutions register, and artifact register are hand-maintained —
+  a tool cannot make a licensing judgement.
 
 ---
 
-## 7. Feature flags and their licence meaning
+## Appendix A — verification commands
 
-Every flag below defaults to `false`. **A copyleft component is never activated by default, and
-activation is logged as a warning at startup and reported by `/api/v1/status`.**
+All commands were run on **2026-11-10** from a network restricted to `pypi.org`, `registry.npmjs.org`
+and `api.github.com`. Reproduce with:
 
-| Flag | Default | Licence consequence when enabled |
-|---|---|---|
-| `ENABLE_ULTRALYTICS` | `false` | Introduces **AGPL-3.0** into the graph — network copyleft on the service |
-| `ENABLE_AGPL_PYMuPDF` | `false` | Introduces **AGPL-3.0** (or requires an Artifex commercial licence) |
-| `ENABLE_POPPLER` | `false` | Introduces **GPL-2.0+** as a subprocess; no derivative-work effect |
-| `ENABLE_AV_SCAN` | `false` | Introduces **GPL-2.0** ClamAV as a separate daemon; no derivative-work effect |
-| `ENABLE_AV_UPDATES` | `false` | Egress; additionally requires `ENABLE_AV_SCAN` |
-| `ENABLE_EXIFTOOL` | **`true`** | Dual Artistic/GPL — see **L-1**; subprocess-isolated and removable |
-| `GAZETTEER_ENABLED` | `false` | Dataset licence **unverified (L-7)**; attribution mandatory |
-| `ENABLE_ONLINE_GEOCODING` | `false` | Egress of location data; requires the master switch |
-| `ENABLE_EXTERNAL_ENRICHMENT` | `false` | **Master egress switch** ([ADR-0012](adr/ADR-0012-data-residency-no-default-egress.md)) |
-| `ALLOW_MODEL_DOWNLOAD` | `false` | Unpinned weight download — licensing **and** supply-chain risk |
-| `ENABLE_EXTERNAL_AI` | `false` | A *service* relationship, not a dependency; provider ToS must be reviewed ([ADR-0021](adr/ADR-0021-external-ai-activation-and-egress-confirmation.md)) |
+```bash
+# Python package licence (PyPI metadata)
+curl -s https://pypi.org/pypi/ultralytics/json | \
+  python3 -c 'import sys,json;i=json.load(sys.stdin)["info"];print(i["version"], i.get("license") or i.get("license_expression"))'
 
----
+# npm package licence
+curl -s https://registry.npmjs.org/next | \
+  python3 -c 'import sys,json;d=json.load(sys.stdin);print(d["dist-tags"]["latest"], d.get("license"))'
 
-## 8. Infrastructure
+# GitHub repository licence detection
+curl -s -H 'Accept: application/vnd.github+json' \
+  https://api.github.com/repos/FoundationVision/ByteTrack | \
+  python3 -c 'import sys,json;print(json.load(sys.stdin)["license"]["spdx_id"])'
 
-### 8.1 Base images
+# Actual licence TEXT (authoritative over detection)
+curl -s -H 'Accept: application/vnd.github.raw+json' \
+  https://api.github.com/repos/exiftool/exiftool/contents/LICENSE | head -3
 
-| Image | Licence | Used for |
-|---|---|---|
-| `python:3.11-slim` | PSF + Debian components | `api`, `worker-cpu`, `beat` |
-| `node` / Next standalone runtime | MIT | `frontend` |
-| CUDA 12.x base | **NVIDIA proprietary EULA (L-9)** | `worker-gpu` only |
+# Author's own licence statement (the ExifTool dual-licence discovery)
+curl -s -H 'Accept: application/vnd.github.raw+json' \
+  https://api.github.com/repos/exiftool/exiftool/contents/README | grep -A5 -i 'copyright and license'
 
-### 8.2 PostgreSQL
+# Upstream warning about weight licensing (the torchvision discovery)
+curl -s -H 'Accept: application/vnd.github.raw+json' \
+  https://api.github.com/repos/pytorch/vision/contents/docs/source/models.rst | grep -B2 -A6 -i licens
 
-`pgvector/pgvector:pg16` — PostgreSQL License (permissive, MIT-like); `pgvector` extension is
-PostgreSQL License. No copyleft.
+# Whisper weights licence statement
+curl -s -H 'Accept: application/vnd.github.raw+json' \
+  https://api.github.com/repos/openai/whisper/contents/README.md | grep -A3 -i '## License'
+```
 
-### 8.3 nginx
-
-`nginx:1.27-alpine` — BSD-2-Clause. Permissive.
-
-### 8.4 Redis — **the licensing trap**, finding driving [ADR-0022](adr/ADR-0022-redis-7-2-pin.md)
-
-| Version | Licence | Status |
-|---|---|---|
-| **Redis ≤ 7.2** | **BSD-3-Clause** | ✅ **Pinned: `redis:7.2-alpine`, by digest** |
-| Redis 7.3 | transitional | ❌ Excluded by CI gate |
-| **Redis 8** | **RSALv2 / SSPLv1**, later adding an **AGPLv3** option | ❌ **Excluded by CI gate** |
-
-RSALv2 and SSPLv1 are **not** open-source licences and restrict offering the software as a service;
-the AGPLv3 option would introduce network copyleft. A routine `redis:latest` bump would silently
-change the platform's licensing posture.
-
-**Mitigations:** digest pinning; a CI gate that fails on any `redis:8*` or `redis:7.3*` reference
-anywhere in the repository (compose, Dockerfiles, docs, fixtures); and — most importantly — Redis
-holds only **ephemeral** data in v1. The Celery **result backend is PostgreSQL**, so nothing
-evidentially significant lives in Redis and losing it is recoverable. **Valkey** (BSD-3, Linux
-Foundation fork) is the documented upgrade path if 7.2 ever reaches end of support.
+**Lesson encoded in these commands:** licence *detection* (SPDX ids, GitHub badges, PyPI classifiers)
+is not licence *verification*. Three of the four most consequential findings in this document — the
+ExifTool dual licence, the torchvision weights warning, and the Whisper weights grant — were only
+visible by reading the upstream text, not the metadata.
 
 ---
 
-## 9. Enforcement — how this audit is kept true
-
-An audit that is not mechanically enforced decays within one dependency bump. These gates are
-CI-blocking:
-
-1. **`tools/license-check/`** — resolves the default dependency graph and **fails on AGPL, SSPL or
-   RSAL**. A negative test injects an AGPL dependency and asserts the gate fails.
-2. **`tools/license-check/policy.toml`** — the allowlist, denylist and per-package overrides, so an
-   exception is a reviewed file change rather than a code edit.
-3. **Redis image gate** — fails on `redis:8*` / `redis:7.3*` (§8.4).
-4. **`models.lock.json`** — every model artifact records `code_licence`, `weights_licence`,
-   `weights_licence_source`, `weights_licence_verified_at`, `commercial_use_cleared`,
-   `legal_review_id` and `allow_fetch`. **The loader refuses any artifact whose `allow_fetch` is not
-   `true`, whose `weights_licence` is empty, or whose SHA-256 does not match — fail closed, never
-   fall back.**
-5. **SBOM + `THIRD_PARTY_LICENSES.md`** generated per release, so downstream obligations are met
-   regardless of our own licensing position ([ADR-0008](adr/ADR-0008-repository-remains-unlicensed.md)).
-6. **Frontend bundle grep** — no `NEXT_PUBLIC_*` variable may hold a provider API key.
-7. **`import-linter` boundaries** — a flag-gated copyleft module cannot be imported by default-path code.
-8. **No LICENSE file assertion** — CI fails if a `LICENSE`/`COPYING` file appears while ADR-0008 is
-   `Accepted`, forcing a conscious decision rather than an accidental one.
-
----
-
-## 10. Open findings summary
-
-| ID | Subject | Severity | Gates | Resolution path |
-|---|---|---|---|---|
-| **L-1** | ExifTool Artistic-vs-GPL election | Medium | M8 metadata | Counsel reviews the dual-licence election. Engineering controls hold under either reading. |
-| **L-2** | torchvision COCO detection weights | Medium | M13 detection | Operator supplies cleared weights; platform ships none. |
-| **L-3** | EasyOCR weights | Medium | M10/M13 OCR | Verify upstream terms, or operator-provision with recorded provenance. |
-| **L-5** | Face-detector weights | Medium | M9 image | Operator-supplied only. No face **recognition** anywhere. |
-| **L-6** | `pyannote` diarisation weights | Low | M11 audio | Diarisation disabled in v1; gated acceptance required to enable. |
-| **L-7** | Gazetteer dataset licence | Medium | M8/M16 location | Disabled by default; counsel verifies, then operator provisions with attribution. |
-| **L-9** | NVIDIA CUDA EULA | Low | `worker-gpu` | Proprietary but redistributable under NVIDIA terms; surfaced to the operator; never in the CPU image. |
-| **L-11** | Report font embedding/redistribution | Low | M18 reports | Use DejaVu (BSD-style) or Liberation/Noto (SIL OFL) only; reproduce notices. |
-
-**Rule for every open finding:** ship the conservative path, gate the capability behind a flag, and
-**never ship an unverified artifact**. An unresolved finding delays a feature; it never results in a
-guess.
-
----
-
-## 11. What this document deliberately does not say
-
-* It does **not** say TruthLens X is legally compliant in any jurisdiction.
-* It does **not** resolve **L-1**; it reports a contradiction in upstream licensing text and leaves the
-  election to counsel.
-* It does **not** assert CC BY 4.0 (or any licence) for the gazetteer dataset — **L-7 is unverified**.
-* It does **not** treat a permissive package licence as covering that package's weights.
-* It does **not** license the platform itself — see [ADR-0008](adr/ADR-0008-repository-remains-unlicensed.md).
-  The repository is deliberately unlicensed, which means default copyright and all rights reserved.
-  **That decision must be revisited before the repository is made public.**
+*End of THIRD_PARTY_LICENSE_AUDIT.md v1.0.0. Re-verify before every release.*

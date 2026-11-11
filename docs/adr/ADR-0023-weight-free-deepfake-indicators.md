@@ -1,100 +1,87 @@
-# ADR-0023 — M14 deepfake analysis uses classical weight-free indicators, not a classifier
+# ADR-0023 — Deepfake analysis uses weight-free classical indicators in v1
 
 | | |
 |---|---|
-| **Status** | Accepted — ratified 2026-11-10 · emerged from the licence audit, not from a D-0NN proposal |
-| **Decision ID** | Refines D-001; implements the AI-responsibility requirements |
-| **Related** | [ADR-0001](ADR-0001-permissive-default-dependency-set.md), [AI_ARCHITECTURE §6](../AI_ARCHITECTURE.md), [THIRD_PARTY_LICENSE_AUDIT §5.2](../THIRD_PARTY_LICENSE_AUDIT.md), [DATABASE_DESIGN §8](../DATABASE_DESIGN.md) |
+| **Status** | Accepted — 2026-11-10 |
+| **Decision ID** | D-001 consequence (artifact licence audit) + PRD Module 11 |
+| **Related** | [THIRD_PARTY_LICENSE_AUDIT.md](../THIRD_PARTY_LICENSE_AUDIT.md) §5 (W-11), §5.2, §6 (DS-4) · [MASTER_PRD.md](../MASTER_PRD.md) Module 11, §5 (AR-1…AR-8) |
 
 ## Context
-
-Deepfake detection is the feature most likely to be over-trusted and the hardest to license cleanly.
-Two independent problems were found:
-
-1. **Licensing.** Published deepfake detectors ship weights trained on datasets whose terms are
-   frequently research-only or unstated. A permissive Python package does **not** make its weights
-   permissive (ADR-0001 §9). No third-party deepfake weights are shipped or downloaded.
-2. **Epistemics.** A trained classifier reports a number with no way to interrogate *why*, generalises
-   poorly to generators it was not trained on, and invites exactly the overclaiming the owner forbids:
-   never fabricate forensic results, never claim guaranteed deepfake detection accuracy.
+The licence audit produced a decisive finding: published deepfake detectors are overwhelmingly
+**research-licensed / non-commercial**, and the datasets they are trained and evaluated on —
+FaceForensics++ (non-commercial research), Celeb-DF, DFDC (CC BY-NC 4.0) — cannot be used in a
+commercial or operational forensic product without separate permission. This is a case where the
+licence audit changed the technical design, not just the paperwork.
 
 ## Decision
-
-1. M14 implements **classical, weight-free signal indicators**, each independently explainable:
-   * **DCT / FFT spectral analysis** — GAN and diffusion generators leave characteristic spectral
-     fingerprints and periodic artifacts.
-   * **Boundary blending detection** — face-swap compositing leaves seam, colour-temperature and
-     noise-floor discontinuities at the blend boundary.
-   * **Facial landmark symmetry and geometry** — physiological implausibility in blink rate, pupil
-     circularity and landmark jitter.
-   * **Temporal flicker / inter-frame consistency** — per-frame generators produce unstable high-
-     frequency detail across consecutive frames.
-   * **Lip-sync mismatch** — audio-visual correlation between phoneme timing and mouth movement.
-   * **Vocoder roll-off** — synthetic speech shows characteristic high-frequency spectral truncation.
-2. Output is an **advisory score with an interval** (`score_confidence_low` / `score_confidence_high`)
-   and a mandatory `confidence_basis` explaining what the score rests on.
-3. **`analysis_results` has no verdict column.** There is no field in which "fake" or "authentic" can
-   be stored, so no code path can assert one.
-4. `limitations_code` is **NOT NULL** with snapshotted limitation text, and
-   `requires_human_verification` defaults to **true with no code path setting it false**.
-5. Database `CHECK` constraints enforce honesty: any `advisory_score` requires both confidence bounds;
-   any `confidence` requires `confidence_basis`; `confirmed`/`rejected` statuses require
-   `verification_notes`; `verified_by` must be NULL while unverified.
-6. Each indicator reports **individually** as well as in aggregate, so a reviewer can see which signal
-   fired and discount the ones they judge inapplicable to the material.
-7. **Only self-measured performance figures are ever displayed.** No published benchmark from a paper
-   is shown as though it applied to this deployment.
+1. **M14 ships no third-party deepfake detection weights.** No pretrained synthetic-media classifier
+   is bundled, fetched, or defaulted on.
+2. Deepfake analysis is implemented as an ensemble of **classical, weight-free signal-processing
+   indicators**:
+   - DCT/FFT spectral analysis for GAN/CNN upsampling fingerprints and characteristic grid artifacts
+   - face-boundary blending and edge-inconsistency statistics
+   - landmark symmetry and reflection/eye/teeth artifact heuristics
+   - temporal identity flicker and head-pose jitter across frames
+   - lip-motion versus audio-energy correlation mismatch
+   - audio vocoder indicators (high-frequency roll-off, harmonic regularity, spectral fingerprints)
+3. Indicators aggregate into an **advisory score with a mandatory confidence interval** and
+   `requires_human_verification = true`, which no code path can set to false.
+4. Every result carries its versioned limitations statement, including the fixed text that no
+   deepfake detector is reliable in the wild and that compressed authentic media routinely triggers
+   these indicators.
+5. Any learned detector added later requires: a verified permissive weight licence, a new ADR, its own
+   `models.lock.json` entry, and a measured-performance record on our own evaluation set.
+6. Our **internal evaluation set** must be synthetic or self-generated, containing no
+   third-party-copyrighted media and no real personal data (TESTING_STRATEGY §12).
 
 ## Alternatives considered
-
 | Option | Verdict |
 |---|---|
-| Ship a pretrained deepfake classifier | Rejected — weights licence unverified (finding L-5 class of problem), and a black-box score invites overclaiming. |
-| Download a detector at runtime behind a flag | Rejected — `ALLOW_MODEL_DOWNLOAD=false` (ADR-0012) and the loader refuses unaudited weights (ADR-0001 §9). |
-| Report a single binary verdict | Rejected — the strongest possible overclaim, and forbidden by the owner's AI-responsibility rules. |
-| Omit deepfake analysis from v1 | Rejected — weight-free indicators are genuinely informative and honest about their limits; omitting them would forfeit real value. |
+| Bundle a published deepfake classifier | **Rejected** — weights and training datasets are research/non-commercial licensed (W-11, DS-4) |
+| Train our own classifier | **Rejected for v1** — requires a licensed dataset we cannot obtain, significant compute, and would produce a model whose generalisation we could not honestly characterise |
+| Omit deepfake analysis entirely | Rejected — the brief requires the module, and classical indicators are genuinely informative *when framed as indicators* |
 
 ## Rationale
-
-Classical indicators are auditable: an examiner can be shown *which* artifact was found *where*, and
-can disagree. A classifier score cannot be cross-examined. Explainability is not a nice-to-have in a
-forensic context — it is the difference between an investigative indicator and an unusable assertion.
+This is the honest design as well as the legally clean one. A classical indicator's behaviour can be
+explained, its failure modes enumerated, and its limitations stated precisely — which is exactly what
+AR-4 demands. A black-box classifier trained on FaceForensics++ generalises poorly to real casework
+(compressed, resized, platform-transcoded media) and **cannot** support a defensible limitations
+statement, so it would push the product toward overclaiming.
 
 ## Consequences
-
-* Detection is weaker against sophisticated, well-compressed material than a state-of-the-art
-  classifier might be. **This is stated in the product, not hidden.**
-* Every result carries visible uncertainty, which the UI and reports must render rather than collapse
-  into a badge or a colour.
-* Indicators are sensitive to re-encoding and compression; the limitations text says so explicitly.
+**Positive:** no licence exposure; no multi-GB weights to manage for this module; indicators are
+explainable; CPU-only execution works (no GPU dependency for M14); results are deterministic and
+reproducible, which strengthens evidential defensibility.
+**Negative / accepted costs:** lower discriminative power than a well-trained classifier on
+*in-distribution* media; no ability to name a specific generation method; the advisory score must be
+presented with wide intervals to remain honest. These are stated in the UI and the report, not
+hidden.
 
 ## Licensing implications
-
-**Zero third-party weights.** All indicator code is first-party, built on permissively licensed signal
-processing (`numpy`, `scipy`, `opencv-python-headless`, `Pillow` — all BSD/Apache/MIT). No face-
-recognition model is used anywhere in the platform, which also avoids the biometric-processing legal
-questions a recognition model would raise.
+OpenCV Apache-2.0, NumPy/SciPy BSD — **all cleared, no weights, no datasets, no open legal item** for
+M14. This is the cleanest module in the AI stack from a licence perspective, as a direct result of
+auditing artifacts separately from packages.
 
 ## Security implications
-
-Indicators run in the egress-blocked `isolated` worker network on untrusted media, so a crafted file
-cannot exfiltrate. Because no verdict is storable, a compromised analysis path cannot manufacture a
-conclusion — it can only produce scores that a human must still verify.
+No model-supply-chain surface for this module (no weights to pin, fetch or verify). Deterministic
+execution removes a class of non-reproducibility. The principal risk is **epistemic** — a user
+over-trusting the advisory score — mitigated structurally by the interval requirement, the mandatory
+limitations text, the verification state, the absence of any verdict field, and the honesty
+string-lint test.
 
 ## Reversal strategy
-
-Adding a trained detector later is additive: it becomes another indicator with its own provenance row,
-its own licence verification in `models.lock.json`, and the same honesty constraints. The absence of a
-verdict column is permanent by design; any future classifier reports a score, never a conclusion.
+Additive. A learned detector can be introduced later as an additional indicator in the same ensemble,
+behind a flag, with its own lock entry, ADR and measured-performance record. Because the aggregation
+layer already combines heterogeneous indicators with intervals, no redesign is required. Removing it
+again is a flag change.
 
 ## Verification
-
-* Synthetic fixtures (a spliced boundary, a spectrally truncated audio clip, a temporally flickered
-  frame sequence) produce a **non-zero** indicator response; clean fixtures produce a low one.
-* Migration tests assert every honesty `CHECK` constraint rejects a violating row.
-* Schema test: `analysis_results` has no column capable of storing a verdict.
-* Test: no code path sets `requires_human_verification=false` (asserted by searching for the
-  assignment and by a mutation test).
-* String-lint test: "confirmed fake", "proven authentic", "is a deepfake", "guilty", "100% accurate"
-  and "guaranteed detection" appear in no template, UI string or report — CI-blocking.
-* Test: an unpublished benchmark figure never appears in any response payload.
+- Test: the M14 module imports no model-loading code and reads no file from `MODELS_ROOT`
+  (static assertion + runtime check).
+- Test: every indicator result includes provenance, confidence **with basis**, an interval, and the
+  limitations snapshot.
+- Test: a clean authentic fixture produces low indicators, and a heavily re-compressed authentic
+  fixture produces **elevated** indicators — proving we surface the false-positive mode rather than
+  hiding it.
+- Test: `requires_human_verification` cannot be set false by any engine or API path.
+- Honesty string-lint: no verdict phrasing anywhere in M14 UI or report copy.

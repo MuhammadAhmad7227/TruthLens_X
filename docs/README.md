@@ -2,10 +2,9 @@
 
 | | |
 |---|---|
-| **Status** | **v1.0.0 RATIFIED** — architecture approved 2026-11-10; all 20 decisions are binding ADRs. **No application code implemented yet.** |
+| **Status** | v1.0.0 — architecture **ratified**. All 20 decisions approved 2026-11-10 and recorded as 23 ADRs. **No application code implemented yet**; M1 is approved and next. |
 | **Last updated** | 2026-11-10 |
-| **Start here if you're short on time** | [DECISIONS.md](./DECISIONS.md) — the ratified decision register, then [adr/README.md](./adr/README.md) for the binding records |
-| **Legal reviewers start here** | [THIRD_PARTY_LICENSE_AUDIT.md](./THIRD_PARTY_LICENSE_AUDIT.md) — and note it is **not** legal advice and asserts no compliance |
+| **Start here** | [DECISIONS.md §3](./DECISIONS.md) — the ratified decision log · [adr/](./adr/README.md) — the 23 ADRs |
 
 ---
 
@@ -21,24 +20,21 @@
 | 6 | [IMPLEMENTATION_ROADMAP.md](./IMPLEMENTATION_ROADMAP.md) | TLX-DOC-006 | In what order, with what effort? 22 milestones (M0–M21) with tasks, exit criteria, dependencies, approval gates, and delivery risks. |
 | 7 | [TESTING_STRATEGY.md](./TESTING_STRATEGY.md) | TLX-DOC-007 | How do we know it works? The pyramid, synthetic evidence fixtures with ground truth, golden-file and determinism policy, and the four tests that enforce honesty and tamper-evidence. |
 | 8 | [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md) | TLX-DOC-008 | How is it run? Topology, host sizing, compose services, first-time install, upgrades, backup/restore, the production hardening checklist, monitoring signals, troubleshooting. |
-| 9 | [DECISIONS.md](./DECISIONS.md) | TLX-DOC-009 | **What was approved?** v2.0.0 — all 20 decisions **ratified** 2026-11-10, the four conflicts found during ratification, and the ADR each decision became. |
-| 10 | [THIRD_PARTY_LICENSE_AUDIT.md](./THIRD_PARTY_LICENSE_AUDIT.md) | TLX-DOC-010 | **What may we ship?** Every dependency, model weight, dataset and base image with its licence, purpose and distribution method; the rejected dependencies; open findings L-1…L-11; and the CI gates that keep the audit true. **Weights are audited separately from their packages.** |
-| 11 | [AI_ARCHITECTURE.md](./AI_ARCHITECTURE.md) | TLX-DOC-011 | **How does AI work here?** The provider protocol, why the provider is fixed at startup (making cloud fallback structurally impossible), the external-AI activation and per-request egress confirmation protocol, the model registry and `models.lock.json` loader contract, and how honesty is enforced by database constraints rather than convention. |
-| 12 | [BACKUP_RECOVERY.md](./BACKUP_RECOVERY.md) | TLX-DOC-012 | **What happens when it breaks?** What must be recoverable and in what order; why volume encryption does **not** encrypt backups; LUKS2 key custody and the escrow procedure; restore procedures with mandatory verification gates; and honest RTO/RPO figures for a single host with no hot standby. |
-| — | [adr/README.md](./adr/README.md) | — | **Why was it decided this way?** 23 Architecture Decision Records, each with context, alternatives considered, consequences, licensing and security implications, a reversal strategy, and the verification that proves it is enforced. |
+| 9 | [DECISIONS.md](./DECISIONS.md) | TLX-DOC-009 | **What was decided.** The 20 decisions with the owner's ratification, attached conditions, and 3 flagged conflicts resolved. |
+| 10 | [THIRD_PARTY_LICENSE_AUDIT.md](./THIRD_PARTY_LICENSE_AUDIT.md) | TLX-DOC-010 | Is every dependency cleared? Two registers — **software** and **artifacts** (weights, checkpoints, datasets, binaries) — plus the copyleft containment, substitution register and 11 open legal items. |
+| 11 | [AI_ARCHITECTURE.md](./AI_ARCHITECTURE.md) | TLX-DOC-011 | How does AI inference work, and when can anything leave the host? Provider adapters, the never-send list, per-request confirmation, kill switch, citation validation. |
+| 12 | [BACKUP_RECOVERY.md](./BACKUP_RECOVERY.md) | TLX-DOC-012 | How is data protected and recovered? LUKS2 provisioning, key custody, backup encryption (separately!), restore procedures, DR, deployment preflight. |
+| 13 | [adr/](./adr/README.md) | — | **23 Architecture Decision Records** — each with alternatives, rationale, consequences, licensing and security implications, and a reversal strategy. |
 
 ## Coming in later milestones
 
 | Path | Milestone | Contents |
 |---|---|---|
 | `docs/compliance/asvs-crosswalk.md` | M20 | Control-by-control OWASP ASVS v4.0 L2 mapping |
-| `docs/runbooks/` | M14/M20 | Key rotation, key compromise, incident response, backup/restore, integrity mismatch, chain break, data-subject request, Postgres major upgrade, releases |
+| `docs/runbooks/` | M20 | The 11 runbooks indexed in BACKUP_RECOVERY §10, plus incident response, chain break, data-subject request |
 | `docs/user-guide/` · `docs/admin-guide/` | M21 | Operator documentation |
-| `THIRD_PARTY_LICENSES.md` | M1 | **Generated** licence notice for the whole dependency tree, produced from the inventory in [THIRD_PARTY_LICENSE_AUDIT.md](./THIRD_PARTY_LICENSE_AUDIT.md) |
-| `CHANGELOG.md` · `CONTRIBUTING.md` · `DEVELOPMENT.md` | M1 | Project conventions |
-
-**Delivered during M0.5** (no longer pending): `docs/adr/` — 23 ADRs plus an index;
-`THIRD_PARTY_LICENSE_AUDIT.md`; `AI_ARCHITECTURE.md`; `BACKUP_RECOVERY.md`.
+| `THIRD_PARTY_LICENSES.md` | M1 | **Generated** licence notice for the whole dependency tree (distinct from the audit in doc 10, which is hand-maintained judgement) |
+| `CHANGELOG.md` · `CONTRIBUTING.md` | M1 | Project conventions |
 
 ---
 
@@ -50,10 +46,9 @@
 **Forensic-engine engineer** → MASTER_PRD.md §3 (modules 5–14) → SYSTEM_ARCHITECTURE.md §9 → TESTING_STRATEGY.md §5–§6
 **Frontend engineer** → API_SPECIFICATION.md → MASTER_PRD.md §3, §6 → TESTING_STRATEGY.md §8–§9
 **DevOps / operator** → DEPLOYMENT_GUIDE.md → SYSTEM_ARCHITECTURE.md §10–§11 → SECURITY_ARCHITECTURE.md §5.5
-**Security reviewer** → SECURITY_ARCHITECTURE.md (all) → TESTING_STRATEGY.md §7 → DECISIONS.md D-001..D-008, D-010, D-012 → [ADR-0004](./adr/ADR-0004-single-organisation-tenancy-with-capability-rbac.md), [ADR-0006](./adr/ADR-0006-luks2-volume-encryption-only.md), [ADR-0010](./adr/ADR-0010-no-row-level-security-in-v1.md), [ADR-0021](./adr/ADR-0021-external-ai-activation-and-egress-confirmation.md)
-**Legal / licence reviewer** → THIRD_PARTY_LICENSE_AUDIT.md (all, especially §5 weights and §10 open findings) → [ADR-0001](./adr/ADR-0001-permissive-default-dependency-set.md) → [ADR-0002](./adr/ADR-0002-pikepdf-default-pdf-stack.md) → [ADR-0003](./adr/ADR-0003-exiftool-optional-subprocess.md) (ExifTool dual licence, finding L-1) → [ADR-0008](./adr/ADR-0008-repository-remains-unlicensed.md) (**the repository is deliberately unlicensed**) → [ADR-0022](./adr/ADR-0022-redis-7-2-pin.md) (the Redis 8 licence trap)
-**Operator / SRE** → BACKUP_RECOVERY.md (all, especially §5 key custody and §7 honest RTO/RPO) → DEPLOYMENT_GUIDE.md → [ADR-0005](./adr/ADR-0005-single-host-docker-compose-deployment.md) → [ADR-0006](./adr/ADR-0006-luks2-volume-encryption-only.md)
-**AI / ML engineer** → AI_ARCHITECTURE.md (all) → [ADR-0007](./adr/ADR-0007-local-default-ai-with-gated-external-providers.md) → [ADR-0021](./adr/ADR-0021-external-ai-activation-and-egress-confirmation.md) → [ADR-0023](./adr/ADR-0023-weight-free-deepfake-indicators.md) → THIRD_PARTY_LICENSE_AUDIT.md §5
+**Security reviewer** → SECURITY_ARCHITECTURE.md (all) → TESTING_STRATEGY.md §7 → BACKUP_RECOVERY.md → AI_ARCHITECTURE.md §4, §7, §12
+**Legal / licensing reviewer** → THIRD_PARTY_LICENSE_AUDIT.md (all) → adr/ADR-0001, 0002, 0003, 0008, 0022, 0023 → DECISIONS.md §3
+**Operator / SRE** → BACKUP_RECOVERY.md → DEPLOYMENT_GUIDE.md §5–§10 → adr/ADR-0005, 0006
 
 ---
 

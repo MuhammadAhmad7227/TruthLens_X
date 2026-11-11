@@ -1,82 +1,71 @@
-# ADR-0003 — ExifTool as an optional, subprocess-isolated extractor with a pure-Python fallback
+# ADR-0003 — ExifTool kept optional, subprocess-isolated, dual-licence election pending
 
 | | |
 |---|---|
-| **Status** | Accepted — ratified 2026-11-10 |
+| **Status** | Accepted with an open legal item — 2026-11-10 |
 | **Decision ID** | D-003 |
-| **Related** | [ADR-0001](ADR-0001-permissive-default-dependency-set.md), [THIRD_PARTY_LICENSE_AUDIT §3.1 (finding L-1)](../THIRD_PARTY_LICENSE_AUDIT.md) |
+| **Decided by** | Project owner ("Keep ExifTool integration optional. Document its Artistic License/GPL dual-licensing status, distribution requirements, and deployment considerations.") |
+| **Related** | [ADR-0001](./ADR-0001-permissive-default-dependency-set.md) · [THIRD_PARTY_LICENSE_AUDIT.md](../THIRD_PARTY_LICENSE_AUDIT.md) §4.1, §10 (L-1) |
 
 ## Context
-
-ExifTool is the de-facto standard for reading camera, GPS, device and maker-note metadata, and M8
-depends on it. Its licence position is genuinely ambiguous and was verified by reading upstream text:
-
-* The distribution `LICENSE` file contains the **full GPLv3** text and GitHub detects `GPL-3.0`.
-* The README's *COPYRIGHT AND LICENSE* section states: *"Copyright 2003-2026, Phil Harvey. This is
+Two upstream sources were retrieved on 2026-11-10 and they differ:
+- The repository `LICENSE` file contains the **GNU GPL v3** text; GitHub detects **GPL-3.0**.
+- The `README` "COPYRIGHT AND LICENSE" section states: *"Copyright 2003-2026, Phil Harvey. This is
   free software; you can redistribute it and/or modify it under the same terms as Perl itself
-  (either the Perl Artistic License or GPL)."*
+  (**either the Perl Artistic License or GPL**)."*
 
-A Perl-style dual licence lets the **recipient elect** the Artistic License, which is far less
-restrictive than GPL. Recorded as finding **L-1**: the election may substantially reduce exposure,
-but this is a legal judgement we are not entitled to make on the owner's behalf.
+This is the standard Perl dual-licence formulation, so an **Artistic election may be available**,
+which would substantially reduce the GPL-3 exposure recorded in D-003.
 
 ## Decision
-
-1. `ENABLE_EXIFTOOL=true` is the default **but ExifTool is invoked strictly as an external
-   subprocess** (`exiftool -json -G1 -api LargeFileSupport=1`), never linked or imported.
-2. A **pure-Python fallback** (Pillow + pikepdf + a minimal EXIF/XMP/ICC reader) is always present
-   and is used automatically when the binary is absent. Metadata extraction therefore never hard-fails
-   because of a licensing choice.
-3. The binary is installed in the `worker-cpu` image only, **not** in `api`.
-4. Redistribution status, deployment requirements and the L-1 ambiguity are documented in
-   `docs/THIRD_PARTY_LICENSE_AUDIT.md` and in `docs/DEPLOYMENT_GUIDE.md`, including how to build a
-   deployment that contains no ExifTool at all.
-5. Removing ExifTool is a documented, supported configuration — not a degraded or unsupported mode.
-6. Subprocess invocation uses an argument vector (never a shell string), a timeout, output size
-   caps and no `shell=True`.
+1. ExifTool remains the primary metadata extractor, invoked **only as a separate process**
+   (`exiftool -j`, JSON over a pipe, argument list, never a shell).
+2. It is **optional and removable**: `ENABLE_EXIFTOOL` (default `true`, but the system must be fully
+   functional with it `false`).
+3. A **pure-Python permissive fallback** (Pillow + pikepdf + ffprobe + a small EXIF/XMP reader) sits
+   behind the same `MetadataEngine` interface and is exercised in CI by hiding the binary.
+4. Install from the **distribution package** (`libimage-exiftool-perl`) rather than vendoring the
+   tarball, so distro licence metadata and security updates apply.
+5. The dual-licence status, distribution requirements and deployment considerations are documented in
+   THIRD_PARTY_LICENSE_AUDIT §4.1.
+6. Until **L-1** is answered by counsel, we treat ExifTool conservatively as GPL-3.
 
 ## Alternatives considered
-
 | Option | Verdict |
 |---|---|
-| Drop ExifTool entirely | Rejected — the pure-Python fallback cannot read most maker notes; M8 quality would drop materially. |
-| Rely on the Artistic election and treat it as settled | Rejected — that is legal advice we must not give (owner instruction: never claim compliance without a proper audit). |
-| Vendor a modified ExifTool | Rejected — forking increases, not reduces, obligation. |
+| Drop ExifTool entirely, pure-Python only | **Rejected** — materially worse tag coverage across obscure formats; contradicts the brief's explicit requirement |
+| ExifTool only, no fallback | **Rejected** — no exit path if the Artistic election is unavailable |
+| Vendor the ExifTool tarball into the repo | **Rejected** — worse for updates and for distribution obligations |
 
 ## Rationale
-
-Subprocess isolation means the platform is not a derivative work of ExifTool under either licence
-reading, and the fallback makes the dependency genuinely optional. The ambiguity is disclosed rather
-than resolved by assumption.
+ExifTool has no equal for tag coverage, and subprocess invocation is the standard containment for a
+GPL tool. Keeping a tested fallback means the licence question can be resolved later without
+re-architecting.
 
 ## Consequences
-
-* Two extraction code paths must both be tested; results must agree on the common subset.
-* Slightly slower than an in-process library (process spawn per file); acceptable because M8 runs in
-  a background worker.
-* The provenance record must state **which** extractor produced each metadata field, so a reviewer
-  can assess it.
+**Positive:** best-in-class metadata extraction preserved; a real exit path exists.
+**Negative / accepted costs:** the fallback covers common tags only; we must maintain two code paths;
+a subprocess per extraction has measurable overhead (batched via ExifTool's `-stay_open` where safe).
 
 ## Licensing implications
-
-Unresolved-by-design. L-1 is an open item for counsel; the deployment can be made ExifTool-free
-without code changes. We do **not** claim compliance — we claim isolation, optionality and disclosure.
+Elected licence **undetermined pending L-1**. Distribution requirements if bundled: ship the ExifTool
+licence text and copyright notice inside the image (`/usr/share/doc/exiftool/`), name the elected
+licence in the generated `THIRD_PARTY_LICENSES.md`, state that ExifTool is a separate program invoked
+as a subprocess, and pin the version with its SHA-256 recorded in `models.lock.json`.
 
 ## Security implications
-
-ExifTool parses untrusted input and has had CVEs. Mitigations: subprocess isolation, no shell,
-resource limits, timeout, output caps, and execution in the egress-blocked `isolated` network. A
-compromise is contained to a worker container that holds no secrets and no database credentials
-beyond the read-only `tlx_worker` role.
+ExifTool parses hostile input by design. Controls: media-worker container only; read-only working
+copy; `--` argument termination; hard timeout; CPU/memory limits; `isolated` network (no egress); no
+shell; tag values are **data**, never interpreted as code or used in paths; output parsed as strict
+JSON with a size cap.
 
 ## Reversal strategy
-
-Set `ENABLE_EXIFTOOL=false` to run pure-Python only, or remove the package from the worker image.
-Both are configuration changes; no schema or API impact.
+Set `ENABLE_EXIFTOOL=false` — the fallback is already tested and contract-compatible. Reversal cost:
+reduced tag coverage, documented in the result's `extractor` field so consumers know which engine
+produced a given record.
 
 ## Verification
-
-* A CI job builds and tests the worker image with ExifTool **absent** and asserts metadata extraction
-  still succeeds via the fallback.
-* Provenance rows record `extractor: exiftool|python` and the version.
-* `grep -r "shell=True"` in the metadata module returns nothing (CI-blocking).
+- Test runs the same fixture through both engines and asserts the normalised schema is populated for
+  the documented subset when ExifTool is absent.
+- Test asserts `exiftool_version` and `invocation_args` are recorded on every extraction (META-06).
+- Test asserts no `shell=True` and no filename interpolation anywhere in the runner.

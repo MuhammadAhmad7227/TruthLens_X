@@ -142,8 +142,12 @@ class Settings(BaseSettings):
     timezone: str = Field(default="UTC", alias="TZ")
     request_id_header: str = Field(default="X-Request-ID", alias="REQUEST_ID_HEADER")
     service_name: str = Field(default="truthlens", alias="SERVICE_NAME")
-    #: Binding 0.0.0.0 is required for container and preview use; the container is not published.
-    api_host: str = Field(default="0.0.0.0", alias="API_HOST")  # noqa: S104
+    #: Binding 0.0.0.0 is required inside the container so the compose network can reach it. This
+    #: is NOT the same as exposing the service: per DEPLOYMENT_GUIDE's port-exposure rule only nginx
+    #: publishes 80/443, and the api service publishes no host port at all. Bandit's B104 is a true
+    #: positive for a bare-metal bind and a false positive for this topology, so it is scoped and
+    #: justified here rather than disabled project-wide.
+    api_host: str = Field(default="0.0.0.0", alias="API_HOST")  # noqa: S104  # nosec B104
     api_port: int = Field(default=8000, ge=1, le=65535, alias="API_PORT")
     workers: int = Field(default=4, ge=1, le=64, alias="WORKERS")
     enable_metrics: bool = Field(default=True, alias="ENABLE_METRICS")

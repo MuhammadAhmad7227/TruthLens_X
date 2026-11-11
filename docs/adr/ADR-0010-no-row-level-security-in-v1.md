@@ -1,73 +1,69 @@
-# ADR-0010 — No PostgreSQL Row-Level Security in v1 (excluded entirely, including M20)
+# ADR-0010 — PostgreSQL Row-Level Security is NOT implemented in v1
 
 | | |
 |---|---|
-| **Status** | Accepted — ratified 2026-11-10 |
+| **Status** | Accepted — 2026-11-10 |
 | **Decision ID** | D-010 |
-| **Refinement flagged ⚠️** | Yes — the proposal was "defer to M20"; the owner's ratification **excluded RLS from v1 entirely**. |
-| **Related** | [ADR-0004](ADR-0004-single-organisation-tenancy-with-capability-rbac.md), [SECURITY_ARCHITECTURE §5](../SECURITY_ARCHITECTURE.md) |
+| **Decided by** | Owner instruction under D-004 condition: *"Do not implement tenant_id, PostgreSQL Row-Level Security, per-tenant encryption keys, or tenant quotas in v1."* |
+| **Conflicts flagged** | ⚠️ My original proposal for D-010 was "defer to M20 as optional hardening". The D-004 approval **explicitly prohibits RLS in v1**, which includes M20. **The explicit instruction wins**; this ADR records the change. |
+| **Related** | [ADR-0004](./ADR-0004-single-organisation-capability-rbac.md) · [SECURITY_ARCHITECTURE.md](../SECURITY_ARCHITECTURE.md) §4.3 |
 
 ## Context
-
-The M0 proposal suggested deferring PostgreSQL Row-Level Security to M20 as defence-in-depth. The
-owner's ratification went further: **do not implement `tenant_id`, PostgreSQL RLS, per-tenant
-encryption keys or tenant quotas in v1 at all.** This ADR records the stronger position so the
-roadmap is not silently re-widened.
+RLS would provide defence in depth: even a buggy query could not cross case boundaries. But the owner
+excluded it from v1 scope, and RLS with a single shared application role adds per-request
+`SET LOCAL` plumbing, policy maintenance across ~20 tables, and a real risk of subtly breaking
+legitimate queries.
 
 ## Decision
-
-1. **No RLS policies are created in v1**, and none are scheduled in any milestone including M20.
-2. **No `tenant_id` column exists on any table.** `cases.organisation_id` is inert (ADR-0004) and is
-   not an RLS key.
-3. Authorisation is enforced **exclusively in the application layer** at the single gate
-   `require_case_access(case_id, capability)`, backed by `case_members` and `rbac_matrix`.
-4. Database roles still provide meaningful separation, and this is **not** relaxed: `tlx_app`,
-   `tlx_migrator`, `tlx_worker`, `tlx_auditor`; `UPDATE` and `DELETE` are **revoked** from `tlx_app`
-   on `audit_logs` and `custody_events`, and a trigger blocks mutation of `physical_objects`.
-5. Multi-tenancy in v2 must be designed deliberately — RLS may be chosen then, as defence-in-depth
-   on top of application checks, never as the primary control.
+1. **No RLS policies in v1**, at any milestone including M20.
+2. Least privilege is enforced by four compensating controls:
+   - **One authorisation choke point** — `require_case_access(case_id, capability)`, case id taken
+     from the path and re-asserted against the loaded resource.
+   - **Repository lint rule** — any query against a case-scoped table without a `case_id` predicate
+     fails a static check.
+   - **Route-enumeration test** — 100% of routes must declare expected capabilities (CI-blocking).
+   - **Negative matrix test** — every forbidden action asserted with its specific deny code, including
+     cross-case UUID guessing.
+3. DB roles still separate DML (`tlx_app`), DDL (`tlx_migrator`), worker and read-only auditor
+   access, and `UPDATE`/`DELETE` are revoked on append-only tables. That is role-level privilege
+   separation, not RLS.
+4. The schema stays **RLS-ready**: every case-scoped table has a non-null `case_id`, so policies can
+   be added later without a data migration.
 
 ## Alternatives considered
-
 | Option | Verdict |
 |---|---|
-| RLS as the primary authorisation mechanism | Rejected — splits the authorisation model across two languages, and a missed `SET LOCAL` silently becomes a data-exposure bug that is hard to test for. |
-| RLS as defence-in-depth in M20 | **Superseded by the owner's ratification** — excluded from v1 entirely. Re-proposable for v2. |
-| No DB-level controls at all | Rejected — role grants and the immutability triggers are cheap, testable and independent of application correctness. |
+| Implement RLS in M20 (my original proposal) | **Superseded by the owner's explicit exclusion** |
+| RLS from M2 | Rejected — same instruction, plus cost |
+| No RLS and no compensating controls | Rejected — unacceptable |
 
 ## Rationale
-
-With a single organisation and one enforcement point, RLS would add a second place for authorisation
-to be wrong without adding a threat it mitigates. The immutability triggers and revoked DML give the
-genuine database-side protections that matter for evidence integrity.
+The compensating controls target the actual failure mode (a route or query that forgot the scope) with
+tests that fail the build. RLS would add a second enforcement layer at meaningful complexity cost, and
+the owner has judged that cost not worth it for a single-organisation v1.
 
 ## Consequences
-
-* **Application-layer correctness is load-bearing.** If `require_case_access` is bypassed, there is no
-  second net. This raises the importance of the 100% `x-capability` coverage CI gate (ADR-0004).
-* A single compromised application credential (`tlx_app`) can read across cases. Mitigated by
-  network isolation, no egress from media workers, and audit alerting on cross-case access attempts.
-* Residual risk is recorded in `SECURITY_ARCHITECTURE.md` §2.2 threat model rather than hidden.
+**Positive:** simpler sessions and connection pooling (no per-request `SET LOCAL`), faster
+development, no risk of RLS silently breaking admin or maintenance queries.
+**Negative / accepted costs:** a repository-layer bug that omits the `case_id` predicate is caught by
+tests rather than by the database. This is a **real residual risk** and is recorded as such in
+SECURITY_ARCHITECTURE §4.3 point 6 and §9.7.
 
 ## Licensing implications
-
 None.
 
 ## Security implications
-
-Explicit trade-off, documented not concealed: one enforcement layer instead of two, in exchange for a
-single, fully testable authorisation model. Compensating controls: deny-by-default gate, non-enumerable
-ids, immutable audit chain, cross-case-attempt alerting.
+Defence in depth is reduced by one layer. Compensated by the four controls above, all CI-enforced.
+Residual risk accepted explicitly by the owner. Re-evaluate if multi-tenancy is introduced (then RLS
+becomes materially more valuable, and ADR-0004's reversal path includes it).
 
 ## Reversal strategy
-
-v2: add policies keyed on a real tenancy column, keep the application gate, and enable
-`row_security` enforcement for `tlx_app`. Additive — no rewrite, thanks to ADR-0004's inert
-`organisation_id`.
+Additive and low-risk because the schema is RLS-ready: enable RLS per table, create policies keyed on
+a session variable, set it in the session-acquisition hook, and run the existing negative matrix
+against both layers. Estimated 4 days. Requires amending this ADR and the D-004 instruction.
 
 ## Verification
-
-* Migration test asserts **zero** `pg_policies` rows exist after `upgrade head`.
-* Migration test asserts `UPDATE`/`DELETE` are revoked from `tlx_app` on audit and custody tables.
-* Trigger test asserts `physical_objects` mutation is rejected.
-* CI gate asserts 100% of case-scoped routes declare `x-capability`.
+- Repository lint rule test: a deliberately unscoped query on `evidence_items` fails the static check.
+- Route-enumeration test: zero routes without a declared capability.
+- Negative matrix: cross-case access returns `404` and writes a `FORBIDDEN_CASE_ACCESS` audit event.
+- A test asserts `pg_policies` is empty in v1, so accidental policy introduction is visible.

@@ -2,23 +2,31 @@
 
 **TruthLens X** — an AI-powered digital forensics and evidence intelligence platform.
 
-> ## ✅ Project status: **ARCHITECTURE RATIFIED — M1 APPROVED — NO APPLICATION CODE YET**
+> ## ✅ Architecture ratified · 🔨 Milestone M1 (foundation) in progress
 >
-> Milestone **M0** (architecture & documentation) is complete and merged. Milestone **M0.5**
-> (decision ratification) is complete: **all 20 architectural decisions were approved by the project
-> owner on 2026-11-10** and each is now a binding Architecture Decision Record in
-> [`docs/adr/`](./docs/adr/README.md) — 23 in total, including three that emerged from the licence
-> and AI audit.
+> **M0** (architecture) and **M0.5** (decision ratification) are complete. All 20 architectural
+> decisions were approved by the project owner on 2026-11-10 and are recorded as **23 Architecture
+> Decision Records** in [docs/adr/](./docs/adr/README.md).
 >
-> Milestone **M1** (repository foundation) is **approved and in progress**. Milestones **M2–M21** have
-> not been started.
+> **What exists today (M1, in progress):**
 >
-> 👉 **Read [docs/DECISIONS.md](./docs/DECISIONS.md) first** — the ratified decision register,
-> including the four conflicts found during ratification and how each was resolved.
+> * **Backend foundation — implemented and tested.** `backend/app/core/` contains fail-closed
+>   configuration validation, a redacting structured-logging pipeline, the RFC 9457 error model,
+>   request-context and security-header middleware, and liveness/readiness probes.
+>   **329 tests pass**; `ruff check`, `ruff format --check` and `mypy --strict` are clean.
+> * **Frontend, compose and CI scaffolding** exist but are **not yet validated at runtime** — no
+>   Docker daemon, PostgreSQL or Redis server was available where they were written.
 >
-> **Nothing in this repository is functional yet.** There is no backend, no frontend, no database and
-> no Docker stack — only the ratified specification for them. M1 delivers the scaffold; no forensic
-> capability exists until M5 onward.
+> **What does not exist yet:** no database schema or migrations, no authentication, no cases, and
+> **no forensic capability of any kind**. Evidence ingest begins at M5. Nothing here analyses
+> evidence, and no endpoint returns investigative findings.
+>
+> Not claimed, because it was not done: `docker compose` validation, any database/Redis integration
+> test, and end-to-end runs. See [docs/IMPLEMENTATION_ROADMAP.md](./docs/IMPLEMENTATION_ROADMAP.md)
+> for exit criteria.
+>
+> 👉 Start with [docs/DECISIONS.md](./docs/DECISIONS.md) (what was decided) or
+> [docs/adr/README.md](./docs/adr/README.md) (why, and how to reverse each one).
 
 ---
 
@@ -55,9 +63,12 @@ Full policy: [docs/MASTER_PRD.md §5](./docs/MASTER_PRD.md#5-ai-responsibility-p
 
 | Document | What it answers |
 |---|---|
-| **[docs/DECISIONS.md](./docs/DECISIONS.md)** | **v2.0.0 RATIFIED — all 20 decisions approved; start here.** |
-| [docs/adr/README.md](./docs/adr/README.md) | **23 Architecture Decision Records** — context, alternatives, consequences, licensing and security implications, reversal strategy, and the verification that proves each is enforced |
-| [docs/README.md](./docs/README.md) | Index + suggested reading order by role (including Legal and Operator/SRE paths) |
+| **[docs/DECISIONS.md](./docs/DECISIONS.md)** | **What was decided** — the ratified log with conditions and flagged conflicts |
+| [docs/adr/](./docs/adr/README.md) | **23 Architecture Decision Records** — alternatives, rationale, consequences, licensing and security implications, reversal strategy |
+| [docs/THIRD_PARTY_LICENSE_AUDIT.md](./docs/THIRD_PARTY_LICENSE_AUDIT.md) | Two registers — software **and** artifacts (weights, checkpoints, datasets, binaries) — copyleft containment, substitution register, 11 open legal items |
+| [docs/AI_ARCHITECTURE.md](./docs/AI_ARCHITECTURE.md) | Provider adapters, the never-send list, per-request egress confirmation, kill switch, citation validation, no cloud fallback |
+| [docs/BACKUP_RECOVERY.md](./docs/BACKUP_RECOVERY.md) | LUKS2 provisioning, key custody, backup encryption (separately), restore and DR procedures, deployment preflight |
+| [docs/README.md](./docs/README.md) | Index + suggested reading order by role |
 | [docs/MASTER_PRD.md](./docs/MASTER_PRD.md) | All 22 modules as testable requirements, AI-responsibility policy, NFRs, user journeys |
 | [docs/SYSTEM_ARCHITECTURE.md](./docs/SYSTEM_ARCHITECTURE.md) | Containers, full folder structure, data flows, storage layout, verified licence table, copyleft containment |
 | [docs/DATABASE_DESIGN.md](./docs/DATABASE_DESIGN.md) | Every table, column, constraint, index and enum; hash-chain design; pgvector; migration & retention strategy |
@@ -66,9 +77,6 @@ Full policy: [docs/MASTER_PRD.md §5](./docs/MASTER_PRD.md#5-ai-responsibility-p
 | [docs/IMPLEMENTATION_ROADMAP.md](./docs/IMPLEMENTATION_ROADMAP.md) | 22 milestones with tasks, exit criteria, dependencies, approval gates, delivery risks |
 | [docs/TESTING_STRATEGY.md](./docs/TESTING_STRATEGY.md) | Test pyramid, synthetic evidence fixtures with ground truth, golden-file & determinism policy, honesty tests |
 | [docs/DEPLOYMENT_GUIDE.md](./docs/DEPLOYMENT_GUIDE.md) | Topology, host sizing, first-time install, upgrades, backup/restore, hardening checklist, monitoring |
-| **[docs/THIRD_PARTY_LICENSE_AUDIT.md](./docs/THIRD_PARTY_LICENSE_AUDIT.md)** | **What may we ship?** Every dependency, model weight, dataset and base image with its licence and distribution method; rejected dependencies; open findings L-1…L-11; the CI gates that keep it true. **Not legal advice — asserts no compliance.** |
-| **[docs/AI_ARCHITECTURE.md](./docs/AI_ARCHITECTURE.md)** | **How does AI work here?** Provider protocol, why the provider is fixed at startup, the external-AI activation and egress-confirmation protocol, model registry and `models.lock.json`, and how honesty is enforced by database constraints |
-| **[docs/BACKUP_RECOVERY.md](./docs/BACKUP_RECOVERY.md)** | **What happens when it breaks?** Recovery priorities, why volume encryption does *not* encrypt backups, LUKS2 key custody and escrow, restore procedures with mandatory verification gates, honest RTO/RPO for a single host |
 
 ---
 
@@ -84,37 +92,37 @@ Full policy: [docs/MASTER_PRD.md §5](./docs/MASTER_PRD.md#5-ai-responsibility-p
 | Testing | pytest · hypothesis · Vitest · Playwright · k6 |
 | Infrastructure | Docker · Docker Compose · nginx · GitHub Actions |
 
-### ✅ Licensing — resolved and audited
+### ⚠️ Licensing note (resolved — audit complete)
 
 Three components named in the project brief carry copyleft licences that reach hosted/networked use.
-Verified against PyPI, the npm registry and GitHub on 2026-11-10:
+Verified against PyPI and GitHub on 2026-11-10, and resolved by **ADR-0001/0002/0003**:
 
-| Component | Package | Licence | Resolution |
+| Component | Package | Licence | Issue |
 |---|---|---|---|
-| YOLO | `ultralytics` 8.4.208 | **AGPL-3.0** | Excluded from the default graph; behind `ENABLE_ULTRALYTICS=false` — [ADR-0001](./docs/adr/ADR-0001-permissive-default-dependency-set.md) |
-| PDF | `PyMuPDF` 2.1 | **AGPL-3.0** or Artifex commercial | `pikepdf` (MPL-2.0) is the default; PyMuPDF behind `ENABLE_AGPL_PYMuPDF=false` — [ADR-0002](./docs/adr/ADR-0002-pikepdf-default-pdf-stack.md) |
-| Metadata | ExifTool binary | **Contradictory: GPLv3 `LICENSE` file vs an Artistic-or-GPL election in the README** | Subprocess-isolated, worker image only, pure-Python fallback always present, removable as a supported configuration — [ADR-0003](./docs/adr/ADR-0003-exiftool-optional-subprocess.md), finding **L-1** |
+| YOLO | `ultralytics` | **AGPL-3.0** | AGPL §13 applies to network use — could obligate publishing the whole platform |
+| PDF | `PyMuPDF` | **AGPL-3.0** or Artifex commercial | Same |
+| Metadata | ExifTool binary | **GPL-3.0** | Separate-process invocation is the standard containment, but bundling needs sign-off |
 
-**Two further findings changed the design** and were not anticipated by the original brief:
+**Approved resolution:** the default dependency set is **permissive-only** — torchvision (or YOLOX,
+Apache-2.0) for detection, `pikepdf` (MPL-2.0) + `pdfminer.six` (MIT) for PDF, subprocess-isolated
+ExifTool with a tested pure-Python fallback. Each copyleft component stays available behind an
+explicit `ENABLE_*` flag that is **never on by default**. ByteTrack's MIT association logic is ported
+in-tree rather than reached through the AGPL `ultralytics` tracking wrapper, and its MOT-trained
+checkpoints are not shipped.
 
-* **A permissive Python package does not make its weights permissive.** `torchvision`'s own
-  documentation disclaims any licence for its pretrained models; the ImageNet-pretrained weights carry
-  **non-commercial research terms** and are excluded entirely. Detection therefore ships **no weights**
-  and uses operator-supplied artifacts. Deepfake analysis (M14) uses **classical weight-free indicators**
-  instead of a trained classifier — [ADR-0023](./docs/adr/ADR-0023-weight-free-deepfake-indicators.md).
-* **Redis ≤7.2 is BSD-3; Redis 8 moved to RSALv2/SSPLv1.** A routine `redis:latest` bump would
-  silently change the platform's licensing posture, so the image is **digest-pinned to
-  `redis:7.2-alpine`** and a CI gate fails on any `redis:8*` or `redis:7.3*` reference —
-  [ADR-0022](./docs/adr/ADR-0022-redis-7-2-pin.md).
+Two further findings changed the design rather than just the paperwork:
 
-ByteTrack's reference implementation is MIT and is **ported** into
-`ai_services/engines/detection/tracker.py` rather than reached through the AGPL `ultralytics` tracking
-wrapper; their MOT17/MOT20 checkpoints are **CC BY-NC-SA (non-commercial)** and are never shipped.
+- **torchvision's own documentation warns** that its pretrained models *"may have their own licenses
+  or terms and conditions derived from the dataset used for training"*. TruthLens X therefore ships
+  **no detection weights** — the operator registers weights they are licensed for.
+- **Published deepfake detectors are research/non-commercial licensed**, as are their datasets
+  (FaceForensics++, DFDC). The deepfake module therefore ships **weight-free classical indicators**
+  ([ADR-0023](./docs/adr/ADR-0023-weight-free-deepfake-indicators.md)).
+- **Redis is pinned to 7.2 (BSD-3)** because Redis 8 changed licence
+  ([ADR-0022](./docs/adr/ADR-0022-redis-72-version-pin.md)).
 
-Full inventory, rejected dependencies, and the eight open findings (L-1…L-11) that gate specific
-artifacts: **[docs/THIRD_PARTY_LICENSE_AUDIT.md](./docs/THIRD_PARTY_LICENSE_AUDIT.md)**. That document
-is **not legal advice and asserts no compliance** — it records what was verified, what could not be,
-and the engineering consequence of each.
+Full audit, including 11 open items for legal counsel:
+**[docs/THIRD_PARTY_LICENSE_AUDIT.md](./docs/THIRD_PARTY_LICENSE_AUDIT.md)**.
 
 ---
 
@@ -133,7 +141,7 @@ and the engineering consequence of each.
 8. Document forensics — PDF **incremental-revision detection and diff**, XMP, embedded-file extraction, OOXML analysis, OCR fallback
 9. Metadata extraction — ExifTool isolation, normalised schema, timestamp provenance classification, stripping-signal detection
 10. Location intelligence — GPS parsing with uncertainty, clustering, movement tracks, offline gazetteer, implausibility checks
-11. Deepfake analysis — frequency/face/temporal/audio **indicator ensemble** with an advisory score, interval, and a mandatory disclaimer. Never a verdict.
+11. Deepfake analysis — **weight-free classical** frequency/face/temporal/audio indicator ensemble with an advisory score, interval, and a mandatory disclaimer. Never a verdict (ADR-0023).
 12. Object detection & tracking — pluggable detectors, ByteTrack association, stable track IDs, queryable detections
 13. Licence-plate recognition — two-stage detect→OCR, jurisdiction-aware format validators, top-N ambiguous-character reporting, no external registry lookups
 14. Evidence comparison — exact/perceptual hash, feature matching with RANSAC, histograms, embeddings, metadata diff, audio cross-correlation, text diff
@@ -156,26 +164,38 @@ cracking, speaker identification, external registry lookups) are listed in
 
 ## Repository layout
 
-Currently only documentation exists. The full planned tree — `backend/`, `ai_services/`,
-`frontend/`, `infra/`, `tools/` — is specified in
-[docs/SYSTEM_ARCHITECTURE.md §4](./docs/SYSTEM_ARCHITECTURE.md#4-repository-structure) and will be
-scaffolded in milestone M1.
+The M1 foundation contains the backend core, plus frontend, compose and CI scaffolding. Forensic and
+domain feature code remains intentionally absent. The full planned tree — including `ai_services/`
+and `tools/` — is specified in
+[docs/SYSTEM_ARCHITECTURE.md §4](./docs/SYSTEM_ARCHITECTURE.md#4-repository-structure) and is filled
+in by later milestones.
 
 ```
 TruthLens_X/
-├── README.md          ← you are here
-├── .env.example       ← every environment variable, documented, no real values
-├── .gitignore         ← evidence files and model weights are excluded by design
-└── docs/              ← the ratified specification set (12 documents)
-    └── adr/           ← 23 Architecture Decision Records + index
+├── README.md              ← you are here
+├── .env.example           ← every environment variable, documented, no real values
+├── .gitignore             ← evidence files, secrets and model weights excluded by design
+├── backend/
+│   ├── app/
+│   │   ├── core/          ← config, logging, errors, middleware, health  (M1 — implemented)
+│   │   ├── api/v1/        ← /healthz, /readyz, /api/v1/status           (M1 — implemented)
+│   │   └── main.py        ← create_app() factory, fail-closed startup    (M1 — implemented)
+│   ├── migrations/        ← Alembic (M2)
+│   └── tests/
+│       ├── unit/          ← config policy, redaction, error model, health, middleware
+│       ├── contract/      ← the M1 endpoints, including the OpenAPI guarantees
+│       └── security/      ← cross-module leakage assertions
+├── frontend/              ← Next.js scaffold (not yet validated at runtime)
+├── infra/                 ← compose + Dockerfiles (not yet validated at runtime)
+├── .github/workflows/     ← backend CI, frontend CI, security scanning
+└── docs/                  ← the M0 specification set + ADRs, audits and runbooks
 ```
 
 ---
 
 ## Roadmap at a glance
 
-`M0 ✅ docs` → `M0.5 ✅ decisions ratified (23 ADRs)` → `M1 foundation ← approved, in progress` →
-`M2 database` → `M3 auth/RBAC` → `M4 cases` →
+`M0 ✅ docs · M0.5 ✅ ratification` → **`M1 foundation 🔨 in progress`** → `M2 database` → `M3 auth/RBAC` → `M4 cases` →
 **`M5 evidence ingest & integrity`** → **`M6 chain of custody`** → `M7 async platform` →
 `M8 metadata` → `M9 image` → `M10 document` → `M11 audio` → `M12 video` → `M13 detection/ALPR` →
 `M14 deepfake indicators` → `M15 comparison/similarity` → `M16 graph/timeline` → `M17 AI assistant` →
@@ -200,18 +220,11 @@ presentation of digital evidence.
 
 ## Licence
 
-**This repository is deliberately unlicensed.** There is no `LICENSE` file, and that is a ratified
-decision, not an oversight — see [ADR-0008](./docs/adr/ADR-0008-repository-remains-unlicensed.md).
+**The repository is deliberately unlicensed** — no `LICENSE` file, and no claim of being open source.
+This is an explicit decision, not an omission: under copyright law, no licence means no grant, so the
+work is fully reserved and every future option (proprietary, permissive, or AGPL) stays open.
+Rationale and reversal asymmetry: [ADR-0008](./docs/adr/ADR-0008-repository-remains-unlicensed.md);
+tracked for counsel as item **L-10**.
 
-In practice this means **default copyright: all rights reserved.** Nobody may legally copy, modify,
-redistribute or contribute to this code until a licence is chosen. ADR-0008 records the alternatives
-considered (Apache-2.0 was the strongest candidate; AGPL-3.0 was rejected because the project takes
-care to keep AGPL *out* of its dependency graph) and notes that adding a licence later does not
-retroactively clarify the terms for anyone who obtained the code before then.
-
-> ⚠️ **ADR-0008 requires this decision to be revisited before the repository is made public.**
-
-Third-party obligations are unaffected by our own licensing position and are still met: an SBOM and a
-generated `THIRD_PARTY_LICENSES.md` ship with each release, and copyleft notices for MPL-2.0, LGPL and
-GPL tooling are reproduced as those licences require — see
-[docs/THIRD_PARTY_LICENSE_AUDIT.md §9](./docs/THIRD_PARTY_LICENSE_AUDIT.md).
+Third-party component licences are unaffected by our choice and are audited in
+[docs/THIRD_PARTY_LICENSE_AUDIT.md](./docs/THIRD_PARTY_LICENSE_AUDIT.md).
