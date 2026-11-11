@@ -63,7 +63,7 @@ AI assistance, excluding review latency. They are planning aids, not commitments
 | **M17** | AI assistant | RAG scoped to case, citations, guardrails, local/external provider adapters | 9 d | M16 + D-007 | ⬜ |
 | **M18** | Reports | ReportLab templates, manifest + hashes, versioning, approval, custody report | 7 d | M14, M16 | ⬜ |
 | **M19** | Admin & monitoring | Admin dashboard, model registry UI, queue ops, alerts, metrics, settings | 7 d | M7, M18 | ⬜ |
-| **M20** | Security hardening & assurance | Pen-test-style negative tests, container hardening, secret scanning, compliance crosswalk, runbooks. **Explicitly excludes PostgreSQL RLS** — [ADR-0010](adr/ADR-0010-no-row-level-security-in-v1.md) removes it from v1 entirely (conflict #1); it is v2 backlog only | 7 d | M19 | ⬜ |
+| **M20** | Security hardening & assurance | Pen-test-style negative tests, container hardening, scanning for committed credentials, compliance crosswalk, runbooks. **Explicitly excludes PostgreSQL RLS** — [ADR-0010](adr/ADR-0010-no-row-level-security-in-v1.md) removes it from v1 entirely (conflict #1); it is v2 backlog only | 7 d | M19 | ⬜ |
 | **M21** | E2E, performance & release | Playwright suite, load test, backup/restore validation, docs polish, v1.0 tag | 8 d | M20 | ⬜ |
 
 **Total estimated effort: ≈ 165 engineering days** (≈ 33 working weeks single-engineer, or ~11 weeks

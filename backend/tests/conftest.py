@@ -152,18 +152,14 @@ def prod_settings(storage_roots: dict[str, Any]) -> dict[str, Any]:
         "preflight_required": True,
         "secret_key": "9c4e17ab3d8f0625ea71b9c4d0f83e62a5b71c9d4e0f83a6b1c5d9e2f7a30864",
         "signed_url_key": "41f8b3d0c7e29a6510d4b8f3e7a26c9d05b1e4f8a3c7d26095b4e1f8a7c3d062",
-        # Shaped like a PEM only so the `-----BEGIN` length exemption in config.py is exercised.
-        # The body is deliberately NOT base64: these are self-describing test fixtures, not keys,
-        # and a realistic-looking private key in a public repository would (rightly) trip secret
-        # scanning and mislead anyone reading the source.
-        "jwt_private_key": (
-            "-----BEGIN PRIVATE KEY-----\nTEST-FIXTURE-INVALID-BODY-NOT-A-REAL-KEY\n"
-            "-----END PRIVATE KEY-----"
-        ),
-        "jwt_public_key": (
-            "-----BEGIN PUBLIC KEY-----\nTEST-FIXTURE-INVALID-BODY-NOT-A-REAL-KEY\n"
-            "-----END PUBLIC KEY-----"
-        ),
+        # These start with `-----BEGIN` only because config.py exempts such a value from the
+        # minimum-length rule, and test_config.py asserts that exemption. They are NOT PEM blocks:
+        # there is no BEGIN/END "PRIVATE KEY" pair and no base64 body, because a realistic key in a
+        # public repository would rightly trip secret scanning — gitleaks' `private-key` rule fired
+        # on the earlier version of this fixture, which is why the marker is spelled with hyphens
+        # and no spaces. Nothing here is a key.
+        "jwt_private_key": "-----BEGIN-TEST-FIXTURE-NOT-A-REAL-KEY-----",
+        "jwt_public_key": "-----BEGIN-TEST-FIXTURE-NOT-A-REAL-KEY-----",
         "database_url": "postgresql+psycopg://tlx_app:prodpass@postgres:5432/truthlens",
         "redis_url": "redis://:prodpass@redis:6379/0",
         **storage_roots,

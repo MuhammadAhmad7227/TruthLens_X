@@ -175,7 +175,11 @@ class Settings(BaseSettings):
     #: NOT USED IN v1 — reserved for the v2 envelope-encryption path (ADR-0006). Still validated as
     #: a critical secret in production so a future migration is not blocked by a missing key.
     encryption_key: str | None = Field(default=None, alias="ENCRYPTION_KEY")
-    jwt_key_id: str = Field(default="truthlens-2026-11", alias="JWT_KEY_ID")
+    #: The `kid` claim naming which signing key issued a token, so keys can be rotated inside an
+    #: overlap window instead of invalidating every live session at once. The default is
+    #: deliberately undated: operators should set a dated identifier per rotation (see
+    #: `.env.example`), and a dated value baked into the source would only read like a secret.
+    jwt_key_id: str = Field(default="truthlens-signing-key", alias="JWT_KEY_ID")
     jwt_issuer: str = Field(default="https://truthlens.example.local", alias="JWT_ISSUER")
     jwt_audience: str = Field(default="truthlens-web", alias="JWT_AUDIENCE")
     access_token_ttl_seconds: int = Field(

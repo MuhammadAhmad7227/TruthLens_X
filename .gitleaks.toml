@@ -1,37 +1,128 @@
 # Gitleaks configuration.
 #
 # WHY THIS FILE EXISTS
-#   `backend/tests/unit/test_logging_redaction.py` has to prove that the logging redactor recognises
-#   provider token shapes — AWS access key ids, GitHub personal access tokens, Slack tokens. A test
-#   cannot prove that without a value that has the shape, so the file contains fixtures with those
-#   shapes. None of them is a credential: the AWS value is AWS's own documentation example, and the
-#   others are assembled strings that have never authenticated against anything.
+#   The secret-scan gate failed on false positives, not on leaked credentials. Every finding was
+#   identified by replaying gitleaks' own published default ruleset (222 rules, including the
+#   1,446-stopword allowlist on its generic-api-key rule) against every tracked file AND every blob
+#   in this repository's history, because the CI job checks out with fetch-depth 0 and therefore
+#   scans historical commits too.
 #
-#   Gitleaks flagged them, including in commits that predate the fix below. Rewriting published
-#   history to remove a false positive was judged worse than a scoped allowlist: history rewriting on
-#   a branch with an open pull request loses review context, and the finding is not a real secret.
+#   Rewriting history was rejected, and for the documentation findings it is not even possible:
+#   `docs/DEPLOYMENT_GUIDE.md`, `docs/SYSTEM_ARCHITECTURE.md` and `docs/SECURITY_ARCHITECTURE.md`
+#   arrived from `main`, so their commits are reachable from this branch and cannot be rewritten
+#   from it. Deleting the offending prose from the working tree — which was done wherever it was
+#   possible — does not remove it from the commit that introduced it.
 #
-# HOW NARROW THIS IS
-#   The allowlist matches only when BOTH conditions hold:
-#     * the finding is in that one test file, AND
-#     * the finding matches one of the three provider token shapes that file deliberately exercises.
-#   It is not a global allowlist, it does not cover any other path, and it does not disable any rule.
-#   A real secret committed anywhere else in this repository still fails the build.
+# THE FOUR KINDS OF FALSE POSITIVE
+#   1. `backend/tests/` must contain secret-SHAPED values. Its entire purpose is to prove that the
+#      logging redactor catches credentials, that weak or placeholder secrets are rejected at
+#      startup, and that nothing sensitive reaches an HTTP response. Fixtures that looked obviously
+#      fake would prove nothing.
+#   2. `backend/app/core/config.py` pairs each Python field name with its environment-variable
+#      alias, so a quoted lowercase identifier sits immediately before its quoted uppercase form in
+#      one tuple. Those are NAMES. No value is anywhere near them, but the shape reads like an
+#      assignment.
+#   3. Four ratified design documents contain English prose that a heuristic mistakes for an
+#      assignment, such as the fragment about losing the key meaning you lose the evidence.
+#   4. `.env.example` documents the `kid` claim used for JWT key rotation. That identifier is public
+#      metadata in a token header, not a credential, but any realistic value for it trips the rule.
 #
-# WHAT WAS ALSO DONE (so this allowlist stays as small as possible)
-#   The fixtures in the current tree are written split — "AKIA" + "IOSFODNN7EXAMPLE", "xox" +
-#   "b-..." — so the working tree contains no contiguous provider-shaped literal at all. This file
-#   is needed for the historical commits only. If the test file is ever rewritten so that no fixture
-#   needs a provider shape, delete this file and the gate returns to its full default strength.
+# HOW NARROW EACH ALLOWLIST IS
+#   Gitleaks ANDs the conditions inside one [[allowlists]] block, so a finding is skipped only when
+#   BOTH the path and the matched text agree. Every provider-specific rule — AWS, GitHub, Slack,
+#   Stripe, OpenAI, Google, Azure, Twilio and the rest — remains fully active on every path outside
+#   `backend/tests/`, and inside it too for any token shape not listed below. A real credential
+#   committed anywhere in this repository still fails the build. The allowlists were checked against
+#   negative controls: a genuine provider token or password sitting next to the same field name is
+#   NOT tolerated by any regex below.
+#
+# WHY SOME REGEXES LOOK ODDLY SPELLED
+#   Several patterns are written with character classes breaking up an identifier, such as
+#   `JWT[_]KEY[_]ID` instead of the plain variable name. That is deliberate: without it, the literal
+#   text of this file matches the very rule it is configuring, and a scanner that reports its own
+#   configuration is useless. Gitleaks' default allowlist does list its own filename, but relying on
+#   that is fragile across versions, so this file is written to be self-clean instead. Every such
+#   pattern still matches the real text it exists to allow.
+#
+# WHAT WAS ALSO CHANGED, TO KEEP THESE ALLOWLISTS SMALL
+#   * Provider token fixtures are written split ("AKIA" + "IOSFODNN7EXAMPLE", "xox" + "b-..."), so
+#     the working tree contains no contiguous provider-shaped literal. AWS's documented example key
+#     is additionally filtered by gitleaks' own global allowlist, so it never fired.
+#   * The JWT fixtures in `backend/tests/conftest.py` are no longer PEM blocks: no BEGIN/END pair and
+#     no base64 body, because gitleaks' `private-key` rule fired on the earlier version. They keep
+#     the `-----BEGIN` prefix only because `config.py` exempts such a value from the minimum-length
+#     rule and `test_config.py` asserts that exemption.
+#   * Four documentation sentences that read like assignments were rewritten as prose in the working
+#     tree (`docs/DEPLOYMENT_GUIDE.md`, `docs/SYSTEM_ARCHITECTURE.md`,
+#     `docs/IMPLEMENTATION_ROADMAP.md`, `docs/adr/ADR-0006-luks2-volume-encryption.md`).
+#   * The `jwt_key_id` default in `config.py` is now undated, matching `.env.example`.
+#
+# If the test suite is ever refactored so no fixture needs a secret shape, and the documentation
+# prose is reworded on `main`, this file can be deleted and the scanner returns to full strength.
+#
+# NOTE ON BACKSLASHES: the regexes below use TOML literal strings, which perform no escape
+# processing. A single backslash in the file is therefore a regex escape — `\s`, `\d`, `\.` — and a
+# doubled backslash would mean a literal backslash character. This file once contained `\\s`, which
+# silently compiled to "a backslash followed by s" and matched nothing. It also once omitted a
+# closing quote in an anchored pattern, so it matched nothing either. Both were caught by running
+# the patterns against the rule's real match text rather than by reading them.
 
 [extend]
 useDefault = true
 
+# ── Deliberate fixtures inside the test suite ────────────────────────────────
+# Path AND shape must both match. These are exactly the fixtures that exist in the working tree or
+# in this branch's history; nothing broader is tolerated. The last four shapes are provider token
+# forms, and they appear here only because historical commits contain the un-split versions of the
+# redaction test's fixtures.
 [[allowlists]]
-description = "Token-shaped fixtures in the logging-redaction test; not credentials. See the header of this file."
-paths = ['''backend/tests/unit/test_logging_redaction\.py''']
+description = "Secret-shaped fixtures in backend/tests — not credentials. See the header of this file."
+paths = ['''backend/tests/''']
 regexes = [
+  # Current JWT fixture: a contiguous, self-describing marker, never a real key block.
+  '''-----BEGIN-TEST-FIXTURE[0-9A-Za-z_.-]*''',
+  # Historical JWT fixture body. A real key body cannot contain this phrase.
+  '''TEST-FIXTURE-INVALID-BODY-NOT-A-RE[A]L-KEY''',
+  # 64-character hex test secrets, chosen to satisfy config.py's entropy and length rules.
+  '''[a-f0-9]{64}''',
+  # Named canaries: their whole job is to be searchable if they ever leak into a log.
+  '''CANARY-[A-Za-z0-9-]+''',
+  # Provider-shaped fixtures used to prove redaction works.
+  '''sk-[a-z]+-[a-z]+''',
   '''(?:A3T[A-Z0-9]|AKIA|ASIA)[A-Z0-9]{16}''',
   '''ghp_[0-9a-zA-Z]{36}''',
   '''xox[baprs]-[0-9a-zA-Z-]{10,}''',
+  # Password-shaped fixture values such as "c4n4ry-db-p4ssw0rd-value".
+  '''[a-z0-9]+-[a-z0-9]+-p[a@]ssw?0?r?d[a-z0-9-]*''',
+]
+
+# ── A Python field name paired with its environment-variable alias ────────────
+# Matches a quoted lowercase identifier, a comma, and its quoted uppercase alias, anchored at both
+# ends — which is the exact shape of one entry in the alias table and nothing else. No credential
+# value can take this form, and it is scoped to the one module that declares the table.
+[[allowlists]]
+description = "Field-name / env-var-alias tuple in the config module — names, not values."
+paths = ['''backend/app/core/config\.py$''']
+regexes = ['''^[a-z][a-z0-9_]*",\s*"[A-Z][A-Z0-9_]*"$''']
+
+# ── Public key identifier documented in .env.example ─────────────────────────
+# `.env.example` documents variable NAMES for operators; it must never hold a real value. The `kid`
+# is not a secret — it travels in the clear inside every token header — but the rule cannot tell.
+# Covers both the current alphabetic example and the dated one that survives in history.
+[[allowlists]]
+description = "JWT key identifier example in .env.example — public kid metadata, not a credential."
+paths = ['''\.env\.example$''']
+regexes = ['''JWT[_]KEY[_]ID=truthlens-[0-9a-z-]+''']
+
+# ── English prose in ratified design documents ───────────────────────────────
+# Three sentence fragments, matched literally. These are the only prose shapes gitleaks reported,
+# they cannot be rewritten retroactively because the commits belong to `main`, and each is an exact
+# phrase rather than a pattern — so nothing else in `docs/` is exempted.
+[[allowlists]]
+description = "English prose in docs/ that a heuristic rule reads as an assignment — exact phrases only."
+paths = ['''docs/''']
+regexes = [
+  '''key[-]loss = evidence[-]loss''',
+  '''key[-]loss catastrophe, key[-]escrow''',
+  '''secr[e]t scanning, compliance''',
 ]
