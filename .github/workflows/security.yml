@@ -17,6 +17,12 @@ jobs:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: backend/pyproject.toml
+      # Upgrade the build tooling first: pip-audit scans the whole environment, and the setuptools a
+      # runner ships can carry known CVEs unrelated to our dependency graph. The first run of this
+      # workflow failed on exactly that — 7 advisories against setuptools 66.1.1, which is not a
+      # runtime dependency of this project. Upgrading is the honest fix; `--ignore-vuln` would
+      # suppress a real finding in the build environment and every future one alongside it.
+      - run: pip install --upgrade pip setuptools wheel
       - run: pip install -e '.[dev,db]'
 
       # Static security scan of the application source. The single accepted suppression is a scoped
@@ -32,6 +38,11 @@ jobs:
 
   secret-scan:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Without this the action cannot post its findings as a PR comment and fails with
+      # "Resource not accessible by integration", which hides the very detail needed to triage a leak.
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:

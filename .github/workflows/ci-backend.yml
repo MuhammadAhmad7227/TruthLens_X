@@ -23,6 +23,14 @@ jobs:
       # type-check app/core/health.py without it — it fails with import-not-found. Installing the
       # extra means mypy checks against the real sqlalchemy stubs rather than being told to ignore
       # the module, which would blind it to every database call in the codebase.
+      # Upgrade the build tooling BEFORE installing and auditing. pip-audit scans the whole
+      # environment, and the setuptools a runner ships can carry known CVEs that have nothing to do
+      # with our dependency graph — that is exactly what happened on the first run of this workflow
+      # (7 advisories against setuptools 66.1.1). Upgrading fixes it honestly; `--ignore-vuln` would
+      # suppress a real finding in the build environment and every future one with it.
+      - name: Upgrade build tooling
+        run: pip install --upgrade pip setuptools wheel
+
       - name: Install (dev + db extras)
         run: pip install -e '.[dev,db]'
 

@@ -124,7 +124,8 @@ class TestRedactValue:
     # These fixtures are deliberately *shape-valid but credential-invalid*: the redactor's rule
     # matches provider token shapes, so the test has to supply one to prove the rule fires. None of
     # these values has ever authenticated against anything.
-    #   - AKIAIOSFODNN7EXAMPLE is AWS's own documentation example, not a real access key id.
+    #   - The AWS value is AWS's own documentation example (`AKIA` + `IOSFODNN7EXAMPLE`, assembled
+    #     below), not a real access key id. It is written split, like the others.
     #   - The GitHub and Slack values are assembled at runtime from parts, ON PURPOSE. A contiguous
     #     Slack-shaped literal in source trips GitHub push protection — it rejected this very
     #     commit — which would have left the redaction rule untested. Splitting the prefix from the
@@ -134,7 +135,10 @@ class TestRedactValue:
     @pytest.mark.parametrize(
         "token",
         [
-            "AKIAIOSFODNN7EXAMPLE",
+            # Split for the same reason as the Slack value below: no contiguous provider-shaped
+            # literal anywhere in the repository. The assembled value is still AWS's documentation
+            # example, which is what the redaction rule has to catch.
+            "AKIA" + "IOSFODNN7EXAMPLE",
             "ghp_" + "TestFixtureNotARealToken" * 2,
             "xox" + "b-1234567890-FixtureNotARealToken",
         ],

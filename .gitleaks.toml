@@ -1,0 +1,37 @@
+# Gitleaks configuration.
+#
+# WHY THIS FILE EXISTS
+#   `backend/tests/unit/test_logging_redaction.py` has to prove that the logging redactor recognises
+#   provider token shapes — AWS access key ids, GitHub personal access tokens, Slack tokens. A test
+#   cannot prove that without a value that has the shape, so the file contains fixtures with those
+#   shapes. None of them is a credential: the AWS value is AWS's own documentation example, and the
+#   others are assembled strings that have never authenticated against anything.
+#
+#   Gitleaks flagged them, including in commits that predate the fix below. Rewriting published
+#   history to remove a false positive was judged worse than a scoped allowlist: history rewriting on
+#   a branch with an open pull request loses review context, and the finding is not a real secret.
+#
+# HOW NARROW THIS IS
+#   The allowlist matches only when BOTH conditions hold:
+#     * the finding is in that one test file, AND
+#     * the finding matches one of the three provider token shapes that file deliberately exercises.
+#   It is not a global allowlist, it does not cover any other path, and it does not disable any rule.
+#   A real secret committed anywhere else in this repository still fails the build.
+#
+# WHAT WAS ALSO DONE (so this allowlist stays as small as possible)
+#   The fixtures in the current tree are written split — "AKIA" + "IOSFODNN7EXAMPLE", "xox" +
+#   "b-..." — so the working tree contains no contiguous provider-shaped literal at all. This file
+#   is needed for the historical commits only. If the test file is ever rewritten so that no fixture
+#   needs a provider shape, delete this file and the gate returns to its full default strength.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Token-shaped fixtures in the logging-redaction test; not credentials. See the header of this file."
+paths = ['''backend/tests/unit/test_logging_redaction\.py''']
+regexes = [
+  '''(?:A3T[A-Z0-9]|AKIA|ASIA)[A-Z0-9]{16}''',
+  '''ghp_[0-9a-zA-Z]{36}''',
+  '''xox[baprs]-[0-9a-zA-Z-]{10,}''',
+]

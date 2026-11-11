@@ -40,7 +40,10 @@ WORKDIR /srv/truthlens
 # non-editable install copies `app/` into site-packages — a later COPY of backend/app would leave the
 # image running the stale site-packages copy. Correctness over cache hits.
 COPY backend/ ./backend/
-RUN pip install --upgrade pip \
+# setuptools and wheel are upgraded deliberately: the base image ships a setuptools old enough to
+# carry published CVEs, and Trivy scans the image filesystem — so a build tool we never import at
+# runtime would still be reported as a vulnerable package in a shipped layer.
+RUN pip install --upgrade pip setuptools wheel \
     && pip install "./backend[db]"
 
 # Fixed non-root UID (DEPLOYMENT_GUIDE: "every image runs as a fixed non-root UID"). The evidence
