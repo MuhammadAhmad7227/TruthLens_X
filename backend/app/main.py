@@ -1,12 +1,14 @@
-from contextlib import asynccontextmanager
 import uuid
+from contextlib import asynccontextmanager
+
 import structlog
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 from structlog.contextvars import bind_contextvars, clear_contextvars
+
 from .core.config import get_settings
 from .core.errors import AppError, app_error_handler
 from .core.logging import configure_logging
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -15,6 +17,7 @@ async def lifespan(_: FastAPI):
     structlog.get_logger().info("application_started", environment=settings.environment)
     yield
     structlog.get_logger().info("application_stopped")
+
 
 def create_app() -> FastAPI:
     settings = get_settings()
@@ -44,5 +47,6 @@ def create_app() -> FastAPI:
         return {"service": "truthlens-x-api", "version": "0.1.0", "status": "ok"}
 
     return app
+
 
 app = create_app()
