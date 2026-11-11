@@ -1,0 +1,54 @@
+# Gitleaks false positives, by fingerprint.
+#
+# FORMAT
+#   gitleaks accepts two forms per line: `file:rule-id:start-line` (global) and
+#   `commit:file:rule-id:start-line`. Blank lines and lines starting with `#` are skipped. A
+#   malformed entry only produces a warning, after which the finding is NOT ignored and the build
+#   goes red — so ci/security.yml validates every entry before the scanner runs.
+#
+#   Every entry below uses the COMMIT form deliberately. Pinning the SHA means the entry can only
+#   ever suppress that one line in that one commit. The global form would suppress any finding at
+#   that file and line forever, including a genuine credential added later.
+#
+# WHY THESE THREE ARE FALSE POSITIVES
+#   All three are in commit 61f9eb1, in backend/tests/conftest.py, which builds the settings object
+#   the test suite runs against. Its job is to prove that the logging redactor catches credentials,
+#   that weak or placeholder secrets are rejected at startup, and that nothing sensitive reaches an
+#   HTTP response. Fixtures that looked obviously fake would prove none of that, so the file has to
+#   contain values with the shape of a secret.
+#
+#     lines 153 and 154 — two 64-character lowercase hex strings used as the application secret and
+#                         the database password. They are random, not real, and they exist because
+#                         config.py enforces a minimum length and rejects placeholder values.
+#     line 160          — a string shaped like a PEM block, present only so config.py's exemption for
+#                         long low-entropy key material is exercised.
+#
+#   None of these lines still exists at HEAD. The PEM fixture has been rewritten so it is no longer a
+#   key block at all — no BEGIN/END pair and no base64 body — and the hex values now sit beside
+#   comments stating what they are. gitleaks scans the commits in the pull request range, not just
+#   the tip, so the commit that introduced them is still reported even though HEAD is clean.
+#
+# WHY NOT FIX IT SOME OTHER WAY
+#   Rewriting history was rejected: this branch has an open pull request, and force-pushing would
+#   destroy the review context attached to it, all to remove fixtures that are not credentials.
+#
+#   A `.gitleaks.toml` with allowlist rules was tried first and deleted. Two problems. The action
+#   pins gitleaks 8.24.3, whose config schema only recognises a single top-level `[allowlist]`
+#   table; the `[[allowlists]]` blocks accepted by newer versions are silently ignored, so the file
+#   looked like it was suppressing findings while doing nothing at all. And even in the newer schema
+#   an allowlist's conditions default to OR, so a block naming both a path and a set of shapes would
+#   have ignored every finding under that path regardless of shape — a real credential committed
+#   into the test suite would have been waved through. Fingerprints are narrower than any allowlist.
+#
+#   Fixtures are still written to avoid tripping the scanner where that costs nothing: provider
+#   tokens are assembled from split literals, so no contiguous provider-shaped token exists anywhere
+#   in the tree, and no rule was disabled to achieve that.
+#
+# WHEN TO REMOVE AN ENTRY
+#   Delete a line here once its commit is no longer reachable from a scanned range — for example
+#   after this branch merges and the scan narrows to single commits. Entries are inert once that
+#   happens, but a stale entry hides nothing and should not be kept out of habit either.
+
+61f9eb1454bfa5c0cf9249c418a3a9cb8c5e31b3:backend/tests/conftest.py:generic-api-key:153
+61f9eb1454bfa5c0cf9249c418a3a9cb8c5e31b3:backend/tests/conftest.py:generic-api-key:154
+61f9eb1454bfa5c0cf9249c418a3a9cb8c5e31b3:backend/tests/conftest.py:private-key:160

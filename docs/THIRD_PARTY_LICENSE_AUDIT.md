@@ -94,6 +94,11 @@ only cleared when **both** registers clear it.
 | `pytest`, `pytest-asyncio`, `pytest-cov` | 9.2.0 / — | MIT | Test harness | PyPI wheel (dev extra) | ✅ |
 | `hypothesis` | 6.x | MPL-2.0 | Property-based tests (path containment, canonicalisation) | PyPI wheel (dev extra) | 📋 dev-only |
 | `ruff`, `mypy`, `bandit`, `pip-audit` | current | MIT / MIT / Apache-2.0 / Apache-2.0 | Lint, types, security scan | PyPI wheel (dev extra) | ✅ |
+| `httpx` | 0.28.1 | BSD-3 | HTTP client; used by the gated-egress test harness | PyPI wheel (dev extra) | ✅ |
+| `httpx2` | 2.16.0 | BSD-3 | **Required, not optional.** Starlette ≥ 1.x `TestClient` rejects plain `httpx` with a
+  deprecation warning, and the backend's `filterwarnings = ["error"]` turns that into a test
+  failure. Same lineage and licence as `httpx`. Verified against PyPI metadata 2026-11-10 | PyPI wheel (dev extra) | ✅ |
+| `types-Pygments` | 2.19.0.20250809 | MIT | Type stubs for mypy | PyPI wheel (dev extra) | ✅ |
 
 **Not in the default set:** `ultralytics` (⚠️ AGPL-3.0), `PyMuPDF` (⚠️ AGPL-3.0/commercial),
 `pyexiftool` (see §4.1), `poppler-utils` python bindings (see §4.4).

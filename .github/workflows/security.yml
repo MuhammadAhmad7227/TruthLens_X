@@ -1,20 +1,263 @@
 name: security
+
+# Three independent jobs. The third exists because ADR-0022 and ADR-0001 both claim a CI gate that
+# did not exist until now: a documented control that nothing enforces is not a control.
 on: [push, pull_request]
+
 jobs:
   backend:
     runs-on: ubuntu-latest
-    defaults: {run: {working-directory: backend}}
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: {python-version: "3.11"}
-      - run: pip install -e '.[dev]'
-      - run: bandit -r app
-      - run: pip-audit
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      # Upgrade the build tooling first: pip-audit scans the whole environment, and the setuptools a
+      # runner ships can carry known CVEs unrelated to our dependency graph. The first run of this
+      # workflow failed on exactly that — 7 advisories against setuptools 66.1.1, which is not a
+      # runtime dependency of this project. Upgrading is the honest fix; `--ignore-vuln` would
+      # suppress a real finding in the build environment and every future one alongside it.
+      - run: pip install --upgrade pip setuptools wheel
+      - run: pip install -e '.[dev,db]'
+
+      # Static security scan of the application source. The single accepted suppression is a scoped
+      # `# nosec B104` on API_HOST, justified inline: binding 0.0.0.0 inside a container that
+      # publishes no host port is not the exposure B104 describes.
+      - name: Bandit
+        run: bandit -r app
+
+      # Known-CVE scan of the RESOLVED graph, not of the declared pins — a transitive dependency can
+      # be vulnerable without any line in pyproject.toml changing.
+      - name: pip-audit
+        run: pip-audit
+
   secret-scan:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Without this the action cannot post its findings as a PR comment and fails with
+      # "Resource not accessible by integration", which hides the very detail needed to triage a leak.
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Gitleaks needs history to scan commits, not just the working tree.
+          fetch-depth: 0
+      # gitleaks only WARNS about a malformed .gitleaksignore entry and then declines to ignore the
+      # finding, which quietly turns a known false positive back into a red build. Its parser accepts
+      # exactly two shapes -- `file:rule-id:start-line` and `commit:file:rule-id:start-line` -- so
+      # enforce them here and fail loudly instead of at the scanner.
+      - name: Validate .gitleaksignore fingerprints
+        run: |
+          python - <<'PY'
+          import pathlib
+          import sys
+
+          path = pathlib.Path(".gitleaksignore")
+          if not path.exists():
+              print("no .gitleaksignore file; nothing to validate")
+              raise SystemExit(0)
+
+          entries = 0
+          malformed = []
+          for raw in path.read_text().splitlines():
+              line = raw.strip()
+              if not line or line.startswith("#"):
+                  continue
+              entries += 1
+              fields = line.split(":")
+              # gitleaks normalises backslashes to slashes, then splits on ":" and expects 3 or 4
+              # fields with a numeric start line last. Anything else is warned about and dropped.
+              if len(fields) not in (3, 4) or not fields[-1].isdigit():
+                  malformed.append(line)
+
+          if malformed:
+              print("Malformed .gitleaksignore entries -- gitleaks would ignore these lines and")
+              print("re-report the findings they were written to suppress:")
+              for entry in malformed:
+                  print(f"  {entry}")
+              sys.exit(1)
+
+          print(f".gitleaksignore OK: {entries} fingerprint(s), all well formed")
+          PY
+
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  licence-and-image-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # ADR-0022: Redis <= 7.2 is BSD-3; Redis 8 moved to RSALv2/SSPLv1 with an AGPLv3 option. A
+      # routine base-image bump would silently change the platform's licensing posture, so the gate
+      # fails on any reference to a disallowed Redis image anywhere in the repository.
+      - name: Redis version gate (ADR-0022)
+        run: |
+          python - <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          # Scoped to IMAGE DECLARATIONS, not to prose. A naive `grep redis:8` matches ADR-0022's own
+          # description of this gate and fails on documentation that exists to explain the rule.
+          DISALLOWED = re.compile(r"\bredis:(8|7\.3|latest)")
+          IS_IMAGE_LINE = re.compile(r"(^\s*image:\s)|(\bFROM\s)")
+          SKIP_DIRS = {".git", ".venv-m1", "node_modules", ".github", "__pycache__"}
+
+          roots = pathlib.Path(".")
+          candidates = [
+              *roots.rglob("*.yml"),
+              *roots.rglob("*.yaml"),
+              *roots.rglob("Dockerfile*"),
+              *roots.rglob("*.compose"),
+          ]
+          found = []
+          scanned = 0
+          for path in sorted(set(candidates)):
+              if any(part in SKIP_DIRS for part in path.parts):
+                  continue
+              for lineno, raw in enumerate(
+                  path.read_text(encoding="utf-8", errors="replace").splitlines(), 1
+              ):
+                  # Strip comments first: a commented-out `image: redis:8` is not a deployment, and
+                  # an explanatory comment must not fail the build.
+                  code = raw.split("#", 1)[0]
+                  if not IS_IMAGE_LINE.search(code):
+                      continue
+                  scanned += 1
+                  if DISALLOWED.search(code):
+                      found.append(f"{path}:{lineno}: {code.strip()}")
+
+          print(f"image declarations scanned: {scanned}")
+          if found:
+              print("::error::Disallowed Redis image (Redis 8+ is RSALv2/SSPLv1, ADR-0022):")
+              for item in found:
+                  print("   ", item)
+              print("Pin redis:7.2-alpine by digest, or evaluate Valkey (BSD-3) via a new ADR.")
+              sys.exit(1)
+          print("OK: no redis:8*, redis:7.3* or redis:latest image declaration.")
+          PY
+
+      # ADR-0001: the DEFAULT dependency graph must be permissive or file-level-copyleft only.
+      # Copyleft packages may appear only in an opt-in extra behind an ENABLE_* flag.
+      - name: Default dependency graph is copyleft-free (ADR-0001)
+        run: |
+          python - <<'PY'
+          import sys, tomllib, pathlib
+
+          spec = tomllib.loads(pathlib.Path("backend/pyproject.toml").read_text())
+          # Names that are AGPL / SSPL / RSAL, or dual-licensed with a copyleft option.
+          BANNED_IN_DEFAULT = {
+              "ultralytics",      # AGPL-3.0
+              "pymupdf",          # AGPL-3.0 / Artifex commercial
+              "fitz",             # legacy name for PyMuPDF
+              "pyagpl",
+          }
+          default = [d for d in spec["project"]["dependencies"]]
+          hits = []
+          for req in default:
+              name = req.split("[")[0].split("=")[0].split("<")[0].split(">")[0].split("!")[0]
+              name = name.strip().lower().replace("_", "-")
+              if name in BANNED_IN_DEFAULT:
+                  hits.append(req)
+          if hits:
+              print("::error::Copyleft package(s) in the DEFAULT dependency set:", hits)
+              print("Move them to the `agpl` extra behind an ENABLE_* flag (ADR-0001).")
+              sys.exit(1)
+          print(f"OK: {len(default)} default dependencies, none copyleft.")
+
+          extras = spec["project"].get("optional-dependencies", {})
+          print("extras:", {k: len(v) for k, v in extras.items()})
+          PY
+
+      # ADR-0001 / ADR-0014 / ADR-0015: every copyleft or unverified-licence capability must default
+      # to OFF in the documented environment reference. A flag that defaults to true is a silent
+      # licence change for every operator who copies .env.example.
+      - name: Copyleft and unverified-licence flags default to off
+        run: |
+          set -euo pipefail
+          fail=0
+          for var in ENABLE_ULTRALYTICS ENABLE_AGPL_PYMuPDF ENABLE_POPPLER ENABLE_AV_SCAN \
+                     ENABLE_AV_UPDATES GAZETTEER_ENABLED ENABLE_EXTERNAL_AI \
+                     LLM_ALLOW_EXTERNAL_EGRESS ENABLE_EXTERNAL_ENRICHMENT ALLOW_MODEL_DOWNLOAD \
+                     ENABLE_ONLINE_GEOCODING ALPR_ALLOW_REGISTRY_LOOKUP; do
+            line=$(grep -E "^[[:space:]]*${var}=" .env.example || true)
+            if [ -z "$line" ]; then
+              echo "::warning::${var} is not documented in .env.example"
+              continue
+            fi
+            case "$line" in
+              *=false*|*=False*|*=disabled*|*=""*) ;;
+              *) echo "::error::${var} must default to false/disabled in .env.example — got: ${line}"
+                 fail=1 ;;
+            esac
+          done
+          [ "$fail" -eq 0 ] && echo "OK: every gated flag defaults to off."
+          exit "$fail"
+
+      # ADR-0008: the repository is deliberately unlicensed. Declaring a licence classifier in
+      # package metadata would imply a grant the owner has not made, so it is gated here. Adding a
+      # real licence remains an owner decision — this gate fails the build until that decision is
+      # recorded, it does not forbid it.
+      - name: No implied licence grant in package metadata (ADR-0008)
+        run: |
+          python - <<'PY'
+          import sys, tomllib, pathlib
+
+          spec = tomllib.loads(pathlib.Path("backend/pyproject.toml").read_text())
+          project = spec["project"]
+          problems = []
+          if "license" in project:
+              problems.append(f"project.license = {project['license']!r}")
+          classifiers = project.get("classifiers", [])
+          problems += [f"classifier {c!r}" for c in classifiers if c.startswith("License ::")]
+          if problems:
+              print("::error::Package metadata implies a licence grant:", problems)
+              print("ADR-0008 keeps the repository unlicensed until the owner decides otherwise.")
+              sys.exit(1)
+          print("OK: no licence field and no License :: classifier in backend metadata.")
+          PY
+
+      # The compose stack must keep the ratified port-exposure rule: only nginx publishes ports.
+      # Publishing the API or database directly would put an unauthenticated path to evidence on the
+      # host's network interface.
+      - name: Only nginx publishes ports (DEPLOYMENT_GUIDE)
+        run: |
+          python - <<'PY'
+          import sys, pathlib, re
+
+          text = pathlib.Path("infra/compose/docker-compose.yml").read_text()
+          # A minimal structural read: find each top-level service and whether it has a ports key.
+          # Deliberately not a full YAML parse, so this job needs no third-party dependency.
+          publishing = []
+          current = None
+          in_services = False
+          for raw in text.splitlines():
+              if re.match(r"^services:\s*$", raw):
+                  in_services = True
+                  continue
+              if in_services and re.match(r"^[A-Za-z]", raw):
+                  in_services = False
+              if not in_services:
+                  continue
+              m = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", raw)
+              if m:
+                  current = m.group(1)
+              if current and re.match(r"^    ports:\s*$", raw):
+                  publishing.append(current)
+          print("services publishing ports:", publishing)
+          if publishing != ["nginx"]:
+              print("::error::Only nginx may publish ports; found:", publishing)
+              sys.exit(1)
+          print("OK: port-exposure rule holds.")
+          PY

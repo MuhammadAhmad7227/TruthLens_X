@@ -1,15 +1,60 @@
-name: frontend
+name: ci-frontend
+
 on: [push, pull_request]
+
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults: {run: {working-directory: frontend}}
+    defaults:
+      run:
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
-        with: {node-version: "22", cache: npm, cache-dependency-path: frontend/package-lock.json}
-      - run: npm install
-      - run: npm run typecheck
-      - run: npm run lint
-      - run: npm test
-      - run: npm run build
+        with:
+          node-version: "22"
+          # The lockfile is committed, so the npm cache key is stable and `npm ci` below can verify
+          # that package.json and package-lock.json agree.
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # npm 10.9.x (which setup-node ships with Node 22) crashes on this dependency graph with
+      # "Cannot read properties of null (reading 'edgesOut')" inside arborist's #loadPeerSet, while
+      # resolving Vitest 4's optional `@vitejs/devtools-vitest` peer set. It is an npm bug, not a
+      # problem with these dependencies: npm 12 resolves the same tree cleanly. Pinning it here is
+      # what makes the job reproducible rather than dependent on whatever npm the runner image has.
+      - name: Pin npm (10.9.x crashes on this peer graph)
+        run: npm install -g npm@12.2.2
+
+      # `npm ci`, not `npm install`: it installs exactly the locked graph and fails if package.json
+      # has drifted from package-lock.json, so a dependency change cannot reach main without a
+      # reviewed lockfile update.
+      - name: Install (locked)
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # Two audits, because one threshold cannot express the actual policy.
+      #
+      # PRODUCTION dependencies must be clean at moderate and above — they ship to the browser and
+      # run on the host. Verified 2026-11-11: `npm audit --omit=dev` reports 0 vulnerabilities.
+      - name: Audit production dependencies (moderate+)
+        run: npm audit --omit=dev --audit-level=moderate
+
+      # The full graph is held to high+ only. It currently carries 7 moderate advisories, all
+      # transitive dev tooling (@typescript-eslint/*, minimatch) that never ships and never runs
+      # against evidence. Failing the build on those would train everyone to ignore this step; a
+      # high or critical finding anywhere, including dev tooling, still fails it.
+      - name: Audit full graph (high+)
+        run: npm audit --audit-level=high

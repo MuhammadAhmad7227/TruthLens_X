@@ -510,7 +510,7 @@ Tracked in [DECISIONS.md](./DECISIONS.md):
 - **D-005** — Single-host compose (proposed default) vs cloud-hosted vs Kubernetes from day one.
   Affects the storage adapter (`filesystem` vs `s3`), backup design, and HA claims.
 - **D-006** — Envelope encryption of originals at rest. Strong protection against disk theft; adds a
-  key-loss = evidence-loss failure mode and a key-escrow requirement.
+  failure mode where losing the key loses the evidence, plus a key-escrow requirement.
 - **D-011** — Object storage target if cloud (S3/MinIO/Azure Blob) and whether originals leave the host.
 - **D-012** — Where the platform itself is hosted relative to legal/jurisdictional constraints on
   evidence data (data residency). This can be a hard constraint that overrides technical preference.
