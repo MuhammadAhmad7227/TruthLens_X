@@ -4,7 +4,7 @@
 
 > ## ✅ Architecture ratified · 🔵 Milestone M1 approved · **No application code yet**
 >
-> **M0** (architecture) and **M0.5** (decision ratification) are complete. All 20 architectural
+> **M0** (architecture) and **M0.5** (decision ratification) are complete. **M1 foundation is scaffolded on this branch; runtime validation remains pending on a host/CI runner.** All 20 architectural
 > decisions were approved by the project owner on 2026-11-10 and are recorded as **23 Architecture
 > Decision Records** in [docs/adr/](./docs/adr/README.md).
 >
@@ -151,7 +151,7 @@ cracking, speaker identification, external registry lookups) are listed in
 
 ## Repository layout
 
-Currently only documentation exists. The full planned tree — `backend/`, `ai_services/`,
+The M1 foundation now contains backend/frontend/compose/CI scaffolding. Forensic and domain feature code remains intentionally absent. The full planned tree — `backend/`, `ai_services/`,
 `frontend/`, `infra/`, `tools/` — is specified in
 [docs/SYSTEM_ARCHITECTURE.md §4](./docs/SYSTEM_ARCHITECTURE.md#4-repository-structure) and will be
 scaffolded in milestone M1.
