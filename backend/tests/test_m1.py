@@ -1,10 +1,9 @@
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from pydantic import SecretStr
-
 from app.core.config import Settings
 from app.core.errors import AppError, app_error_handler
 from app.main import create_app
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 
 client = TestClient(create_app())
