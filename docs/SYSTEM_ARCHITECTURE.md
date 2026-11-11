@@ -120,7 +120,7 @@ flowchart TB
 | `worker-gpu` | `nvidia/cuda:12.x-runtime` + PyTorch | Detection, tracking, ALPR, OCR, Whisper, deepfake indicators, embeddings. | Never writes originals; only derivatives + DB rows. |
 | `beat` | same as `worker-cpu` | Scheduled jobs: integrity sweep, hash-chain verification, retention, vector reindex, queue-health metrics. | No ad-hoc user work. |
 | `postgres` | `pgvector/pgvector:pg16` | System of record. | No blob storage beyond small artifacts. |
-| `redis` | `redis:7-alpine` | Broker, cache, rate-limit counters, token denylist, distributed locks. | **Never** the sole store for anything that must survive — task *results* are mirrored to Postgres. |
+| `redis` | **`redis:7.2-alpine`, digest-pinned** | Broker, cache, rate-limit counters, token denylist, distributed locks. | **Never** the sole store for anything that must survive — task *results* go to Postgres (the Celery result backend is PostgreSQL). ⚠️ **Redis ≤7.2 is BSD-3; Redis 8 moved to RSALv2/SSPLv1.** A CI gate fails the build on any `redis:8*` or `redis:7.3*` reference — see [ADR-0022](adr/ADR-0022-redis-7-2-pin.md). |
 | `nginx` | `nginx:1.27-alpine` | TLS, security headers, request-size cap, coarse rate limiting, static asset caching. | No auth logic. |
 
 **Why the API image excludes AI weights:** a PyTorch + weights image is routinely 5–10 GB. Keeping
@@ -225,8 +225,9 @@ TruthLens_X/
 │   │   └── docker-compose.test.yml     # ephemeral stack for E2E
 │   ├── nginx/                     # tls.conf, security-headers.conf, site.conf
 │   ├── postgres/                  # initdb: roles, least-privilege grants, extensions
-│   ├── scripts/                   # backup.sh, restore.sh, integrity-sweep.sh, seed-dev.sh
-│   └── k8s/                       # Helm chart (phase 2, after compose is proven)
+│   └── scripts/                   # backup.sh, restore.sh, genkeys.sh, verify-encrypted-mount.sh,
+│                                  # fetch-models.sh, integrity-sweep.sh, seed-dev.sh
+│   # NOTE: there is deliberately NO infra/k8s/ — ADR-0005 excludes Kubernetes from v1 entirely.
 ├── tools/
 │   ├── fixtures/                  # synthetic evidence generator (tiny files, no big binaries in git)
 │   ├── openapi/                   # export + type generation script
@@ -566,8 +567,13 @@ Rationale: forensic deployments are frequently on-prem/air-gapped-sensitive; com
 portable, and has no cluster control plane to secure. GPU support via the
 `docker-compose.gpu.yml` override + NVIDIA Container Toolkit.
 
-**Phase 2 (post-v1, only if needed): Kubernetes + Helm.** Same images, same env contract. The
-`infra/k8s/` directory is scaffolded but not the v1 delivery target — see DEPLOYMENT_GUIDE §9.
+**Kubernetes is excluded from v1 entirely** ([ADR-0005](adr/ADR-0005-single-host-docker-compose-deployment.md)).
+There is **no `infra/k8s/` directory and no Helm chart** — not scaffolded, not stubbed. Shipping an
+empty scaffold would imply a delivery path that does not exist. A v2 migration to Kubernetes or a
+multi-host split is a manifest-generation exercise rather than a redesign, because each service is
+already defined per-container with explicit networks and volumes, and `StorageBackend`
+([ADR-0011](adr/ADR-0011-filesystem-storage-backend-only.md)) already abstracts the filesystem. See
+DEPLOYMENT_GUIDE §9 and BACKUP_RECOVERY §7.2.
 
 **Sandbox/development note:** this workspace has no Docker daemon, so compose files will be
 validated by CI (`docker compose config` + a full E2E stack) rather than locally during

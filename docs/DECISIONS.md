@@ -3,17 +3,52 @@
 | | |
 |---|---|
 | **Document ID** | TLX-DOC-009 |
-| **Version** | 0.1.0 |
+| **Version** | 2.0.0 |
 | **Last updated** | 2026-11-10 |
-| **Purpose** | Every architectural assumption made while writing the M0 documentation set, listed for **explicit approval**. Nothing below is implemented yet. |
+| **Status** | **RATIFIED** — all 20 decisions approved by the project owner on 2026-11-10 |
+| **Purpose** | The approval register. Every architectural assumption made while writing the M0 documentation set, the owner's ratification of each, and the ADR that now records it as a binding decision. |
 
-This is the document to read if you only read one. Each entry states what I assumed, why, what
-changes if you disagree, and which milestones it blocks.
+This is the document to read if you only read one. Each entry states what was assumed, why, what
+changes if the decision is revisited, and which milestones it blocks.
 
-**How to respond:** reply with the decision IDs and your choice, e.g.
-`D-001: B, D-002: A, D-006: off, D-007: local, everything else as proposed`.
-Unanswered items default to the **proposed** column at the start of M1, and each default is
-recorded in an ADR so it can be reversed later with a paper trail.
+> ## ✅ Ratified 2026-11-10
+>
+> The project owner responded to every blocking decision with detailed requirements rather than a
+> bare option letter. **All 20 decisions are now `Accepted`.** Each is recorded as an individual ADR
+> in [`docs/adr/`](adr/README.md), and the architecture documentation set has been updated to match.
+>
+> The owner's responses added binding requirements **beyond** the proposed options — for example the
+> eight explicitly named capabilities in D-004, the "never activate a copyleft component by default"
+> rule in D-001, the "document single-host limitations honestly" requirement in D-005, and the
+> "never fall back to cloud AI automatically" requirement in D-007. Those additions are recorded in
+> the ADRs as first-class requirements, not as footnotes.
+>
+> **Nothing below is implemented yet.** Ratification unblocks M1; it does not describe shipped code.
+
+### ⚠️ Conflicts found during ratification
+
+The owner instructed that any conflict between a proposed default and an approved decision be flagged
+before proceeding rather than silently resolved. **Four were found. In every case the owner's explicit
+instruction prevailed.**
+
+| # | Conflict | Resolution | ADR |
+|---|---|---|---|
+| 1 | The proposal said *defer PostgreSQL RLS to M20*. The owner's ratification excluded RLS, `tenant_id`, per-tenant keys and quotas from v1 **entirely**. | Owner's stronger position adopted. RLS is removed from the M20 roadmap and is re-proposable only for v2. | [ADR-0010](adr/ADR-0010-no-row-level-security-in-v1.md) |
+| 2 | The proposal offered an S3 adapter behind a disabled flag. The owner ratified *interface plus filesystem only*. | **No S3 code ships.** A disabled, untested adapter would be a placeholder presented as a capability, which the owner's standing instructions forbid. | [ADR-0011](adr/ADR-0011-filesystem-storage-backend-only.md) |
+| 3 | The proposal had the offline gazetteer **enabled**. Licence finding **L-7** could not verify the dataset's terms. | Default flipped to **disabled**, with attribution mandatory if an operator enables it. Conservative path until counsel resolves L-7. | [ADR-0015](adr/ADR-0015-offline-gazetteer-disabled-by-default.md) |
+| 4 | `API_SPECIFICATION.md` listed `FORBIDDEN_CASE_ACCESS` as a **403** code, contradicting the non-enumerability requirement in `SECURITY_ARCHITECTURE.md` §5.5 **and** the alerting requirement in §9 that such denials be detectable. | Resolved in favour of security: HTTP **404** with client-visible `error_code = NOT_FOUND`, while the server records `audit_reason = FORBIDDEN_CASE_ACCESS` for alerting. The API spec table is corrected. | [ADR-0004](adr/ADR-0004-single-organisation-tenancy-with-capability-rbac.md) |
+
+### Three ADRs emerged after ratification
+
+The third-party licence and AI audit produced findings that no D-0NN proposal anticipated. Each
+**refines** an existing decision rather than replacing one, and none contradicts anything the owner
+approved:
+
+| ADR | Refines | Finding that drove it |
+|---|---|---|
+| [ADR-0021](adr/ADR-0021-external-ai-activation-and-egress-confirmation.md) | D-007, D-012 | ADR-0007 fixes the provider at startup, which left the *deliberate* activation path undefined. Bound expiring grants, per-request egress confirmation and three kill switches. |
+| [ADR-0022](adr/ADR-0022-redis-7-2-pin.md) | D-001, D-005 | **Redis ≤7.2 is BSD-3; Redis 8 moved to RSALv2/SSPLv1.** A routine image bump would silently change the licensing posture. Digest-pinned, with a CI gate. |
+| [ADR-0023](adr/ADR-0023-weight-free-deepfake-indicators.md) | D-001 | Published deepfake detectors ship weights with research-only or unstated terms, and a classifier score invites the overclaiming the owner forbids. Classical weight-free indicators instead. |
 
 Legend: 🔴 blocks a milestone · 🟡 affects design but not blocking · 🟢 informational
 
@@ -244,32 +279,50 @@ legal retention requirement. Affects M2 seeds and M19.
 
 ---
 
-## Decision log (filled in as you approve)
+## Decision log — RATIFIED
 
 | ID | Question | Proposed | **Decision** | Decided by | Date | ADR |
 |---|---|---|---|---|---|---|
-| D-001 | Detector licence | A (permissive default + flag) | *pending* | | | |
-| D-002 | PDF library | A (pikepdf/MPL + flag) | *pending* | | | |
-| D-003 | ExifTool | A (subprocess + fallback) | *pending* | | | |
-| D-004 | Multi-tenancy | A (single-org v1) | *pending* | | | |
-| D-005 | Deployment target | A (single-host compose) | *pending* | | | |
-| D-006 | Encryption at rest | A (disk-level only) | *pending* | | | |
-| D-007 | Assistant model | A (local default) | *pending* | | | |
-| D-008 | Repo licence | B (none yet, gate on) | *pending* | | | |
-| D-009 | PK strategy | UUIDv7 for append-only tables | *pending* | | | |
-| D-010 | Postgres RLS | Defer to M20 | *pending* | | | |
-| D-011 | S3 adapter | Interface now, disabled | *pending* | | | |
-| D-012 | Data residency | On-prem, no egress | *pending* | | | |
-| D-013 | Plate formats | Examples only, you review | *pending* | | | |
-| D-014 | ClamAV | Included, disabled | *pending* | | | |
-| D-015 | Gazetteer | Offline subset | *pending* | | | |
-| D-016 | UI components | Radix + vendored | *pending* | | | |
-| D-017 | ASR engine | faster-whisper default | *pending* | | | |
-| D-018 | MFA scope | Mandatory admin+lead | *pending* | | | |
-| D-019 | Report signing | Hash in v1, crypto optional | *pending* | | | |
-| D-020 | Retention default | You specify the statutory period | *pending* | | | |
+| D-001 | Detector licence | A (permissive default + flag) | **A** + never activate copyleft by default; weights audited separately | Owner | 2026-11-10 | [ADR-0001](adr/ADR-0001-permissive-default-dependency-set.md) |
+| D-002 | PDF library | A (pikepdf/MPL + flag) | **A** — pikepdf default; PyMuPDF flag-gated; rasterisation honestly gated | Owner | 2026-11-10 | [ADR-0002](adr/ADR-0002-pikepdf-default-pdf-stack.md) |
+| D-003 | ExifTool | A (subprocess + fallback) | **A** + document Artistic/GPL dual-licensing and redistribution (L-1) | Owner | 2026-11-10 | [ADR-0003](adr/ADR-0003-exiftool-optional-subprocess.md) |
+| D-004 | Multi-tenancy | A (single-org v1) | **A** + 8 named capabilities, enforce on every endpoint, denial ⇒ 404, no `tenant_id`/RLS/quotas | Owner | 2026-11-10 | [ADR-0004](adr/ADR-0004-single-organisation-tenancy-with-capability-rbac.md) |
+| D-005 | Deployment target | A (single-host compose) | **A** + no Kubernetes; document availability limits honestly | Owner | 2026-11-10 | [ADR-0005](adr/ADR-0005-single-host-docker-compose-deployment.md) |
+| D-006 | Encryption at rest | A (disk-level only) | **A** — LUKS2 only; **no** app-level envelope encryption in v1; mandatory preflight | Owner | 2026-11-10 | [ADR-0006](adr/ADR-0006-luks2-volume-encryption-only.md) |
+| D-007 | Assistant model | A (local default) | **A** + `ENABLE_EXTERNAL_AI=false`; **never** auto-fall back to cloud; admin kill switch | Owner | 2026-11-10 | [ADR-0007](adr/ADR-0007-local-default-ai-with-gated-external-providers.md) |
+| D-008 | Repo licence | B (none yet, gate on) | **B** — no LICENSE file; ⚠️ re-review before making the repo public | Owner | 2026-11-10 | [ADR-0008](adr/ADR-0008-repository-remains-unlicensed.md) |
+| D-009 | PK strategy | UUIDv7 for append-only tables | **As proposed** | Owner | 2026-11-10 | [ADR-0009](adr/ADR-0009-uuid-primary-key-strategy.md) |
+| D-010 | Postgres RLS | Defer to M20 | **⚠️ Strengthened: excluded from v1 entirely, including M20** | Owner | 2026-11-10 | [ADR-0010](adr/ADR-0010-no-row-level-security-in-v1.md) |
+| D-011 | S3 adapter | Interface now, disabled | **⚠️ Narrowed: interface + filesystem only; no S3 code ships** | Owner | 2026-11-10 | [ADR-0011](adr/ADR-0011-filesystem-storage-backend-only.md) |
+| D-012 | Data residency | On-prem, no egress | **As proposed** + one master switch governs every feature flag | Owner | 2026-11-10 | [ADR-0012](adr/ADR-0012-data-residency-no-default-egress.md) |
+| D-013 | Plate formats | Examples only, you review | **As proposed** + registry lookup hard-disabled; no HTTP client in the module | Owner | 2026-11-10 | [ADR-0013](adr/ADR-0013-alpr-examples-only-and-registry-lookup-hard-disabled.md) |
+| D-014 | ClamAV | Included, disabled | **As proposed** + updates gated behind scanning; scan failure fails closed | Owner | 2026-11-10 | [ADR-0014](adr/ADR-0014-clamav-included-but-disabled-by-default.md) |
+| D-015 | Gazetteer | Offline subset | **⚠️ Flipped: DISABLED by default** pending L-7; attribution mandatory if enabled | Owner | 2026-11-10 | [ADR-0015](adr/ADR-0015-offline-gazetteer-disabled-by-default.md) |
+| D-016 | UI components | Radix + vendored | **As proposed** + `dangerouslySetInnerHTML` is an ESLint error; untrusted SVG disabled | Owner | 2026-11-10 | [ADR-0016](adr/ADR-0016-radix-primitives-with-vendored-ui-components.md) |
+| D-017 | ASR engine | faster-whisper default | **As proposed** — code **and** weights MIT; diarisation gated on L-6 | Owner | 2026-11-10 | [ADR-0017](adr/ADR-0017-faster-whisper-default-asr.md) |
+| D-018 | MFA scope | Mandatory admin+lead | **As proposed**; WebAuthn deferred to v2 | Owner | 2026-11-10 | [ADR-0018](adr/ADR-0018-mandatory-mfa-for-privileged-roles.md) |
+| D-019 | Report signing | Hash in v1, crypto optional | **As proposed** + deterministic output; reports cannot read assistant tables | Owner | 2026-11-10 | [ADR-0019](adr/ADR-0019-report-manifest-hashing-with-optional-crypto-signing.md) |
+| D-020 | Retention default | You specify the statutory period | **As proposed** — no default; unset deletes nothing; hard deletion needs two approvers | Owner | 2026-11-10 | [ADR-0020](adr/ADR-0020-retention-without-a-default-statutory-period.md) |
+
+### Emerged from the licence and AI audit (post-ratification)
+
+| ID | Subject | Refines | ADR |
+|---|---|---|---|
+| — | External AI activation and egress confirmation protocol | D-007, D-012 | [ADR-0021](adr/ADR-0021-external-ai-activation-and-egress-confirmation.md) |
+| — | Pin `redis:7.2-alpine`; exclude Redis 8 (RSALv2/SSPLv1) | D-001, D-005 | [ADR-0022](adr/ADR-0022-redis-7-2-pin.md) |
+| — | Weight-free deepfake indicators; no verdict column | D-001 | [ADR-0023](adr/ADR-0023-weight-free-deepfake-indicators.md) |
 
 ---
 
-*End of DECISIONS.md. Once you respond, each decision becomes `docs/adr/ADR-000N-*.md` in M1 and the
-roadmap status board unblocks.*
+## Change log
+
+| Version | Date | Change |
+|---|---|---|
+| 0.1.0 | 2026-11-10 | M0 — 20 decisions and 15 assumptions recorded for approval |
+| **2.0.0** | **2026-11-10** | **RATIFIED.** All 20 decisions approved. Four conflicts flagged and resolved in favour of the owner's instruction. Three ADRs (0021–0023) added from the licence and AI audit. 23 ADRs published in `docs/adr/`. `THIRD_PARTY_LICENSE_AUDIT.md`, `AI_ARCHITECTURE.md` and `BACKUP_RECOVERY.md` added. Architecture, database, API, security, deployment and roadmap documents updated to match. |
+
+---
+
+*End of DECISIONS.md. Every decision above is now a binding ADR in [`docs/adr/`](adr/README.md). The
+roadmap status board is unblocked from M1 onward. Revisiting a decision requires superseding its ADR —
+not editing this table.*

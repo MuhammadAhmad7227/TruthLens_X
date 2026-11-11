@@ -162,8 +162,13 @@ Changing a cell requires a migration + review, which makes privilege changes aud
 4. Service layer: state rules (case closed, legal hold, verification eligibility, second approver).
 5. Repository layer: every query is case-scoped by construction; a lint rule flags any query on a
    case-scoped table without a `case_id` predicate.
-6. Database: RLS **not** used in v1 (complexity vs benefit with a single app role per service);
-   compensating controls are the repository rule + the route-enumeration test + audit. RLS is a
+6. Database: RLS is **excluded from v1 entirely, including M20** — [ADR-0010](adr/ADR-0010-no-row-level-security-in-v1.md)
+   records this as a strengthening of the original "defer to M20" proposal (ratification conflict #1).
+   No `tenant_id` column exists on any table; `cases.organisation_id` is **inert** and is never read by
+   authorisation. Compensating controls are the single `require_case_access` gate + the 100%
+   `x-capability` route-enumeration CI gate + immutable audit + cross-case-attempt alerting. **Because
+   there is one enforcement layer rather than two, application-layer correctness is load-bearing** —
+   that residual risk is recorded here rather than hidden. RLS remains a
    phase-2 hardening option (D-010).
 
 ---
