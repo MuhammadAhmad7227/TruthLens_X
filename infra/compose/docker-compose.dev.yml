@@ -1,0 +1,25 @@
+services:
+  postgres:
+    extends:
+      file: docker-compose.yml
+      service: postgres
+  redis:
+    extends:
+      file: docker-compose.yml
+      service: redis
+  api:
+    extends:
+      file: docker-compose.yml
+      service: api
+    volumes:
+      - ../../backend:/app
+    command: ["uvicorn","app.main:app","--host","0.0.0.0","--port","8000","--reload"]
+  frontend:
+    extends:
+      file: docker-compose.yml
+      service: frontend
+    volumes:
+      - ../../frontend:/app
+      - /app/node_modules
+      - /app/.next
+    command: ["npm","run","dev"]
