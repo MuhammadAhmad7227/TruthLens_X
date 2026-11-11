@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=75", "wheel"]
+requires = ["setuptools>=84.1.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -19,8 +19,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=8,<9",
-  "pytest-cov>=6,<7",
+  "pytest>=9.0.3,<10",
+  "pytest-cov>=6,<8",
   "httpx>=0.28,<1",
   "ruff>=0.9,<1",
   "mypy>=1.14,<2",
@@ -38,7 +38,7 @@ target-version = "py311"
 src = ["app", "tests"]
 
 [tool.ruff.lint]
-select = ["E","F","I","B","UP"]
+select = ["E", "F", "I", "B", "UP"]
 
 [tool.mypy]
 python_version = "3.11"
