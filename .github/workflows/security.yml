@@ -48,6 +48,44 @@ jobs:
         with:
           # Gitleaks needs history to scan commits, not just the working tree.
           fetch-depth: 0
+      # gitleaks only WARNS about a malformed .gitleaksignore entry and then declines to ignore the
+      # finding, which quietly turns a known false positive back into a red build. Its parser accepts
+      # exactly two shapes -- `file:rule-id:start-line` and `commit:file:rule-id:start-line` -- so
+      # enforce them here and fail loudly instead of at the scanner.
+      - name: Validate .gitleaksignore fingerprints
+        run: |
+          python - <<'PY'
+          import pathlib
+          import sys
+
+          path = pathlib.Path(".gitleaksignore")
+          if not path.exists():
+              print("no .gitleaksignore file; nothing to validate")
+              raise SystemExit(0)
+
+          entries = 0
+          malformed = []
+          for raw in path.read_text().splitlines():
+              line = raw.strip()
+              if not line or line.startswith("#"):
+                  continue
+              entries += 1
+              fields = line.split(":")
+              # gitleaks normalises backslashes to slashes, then splits on ":" and expects 3 or 4
+              # fields with a numeric start line last. Anything else is warned about and dropped.
+              if len(fields) not in (3, 4) or not fields[-1].isdigit():
+                  malformed.append(line)
+
+          if malformed:
+              print("Malformed .gitleaksignore entries -- gitleaks would ignore these lines and")
+              print("re-report the findings they were written to suppress:")
+              for entry in malformed:
+                  print(f"  {entry}")
+              sys.exit(1)
+
+          print(f".gitleaksignore OK: {entries} fingerprint(s), all well formed")
+          PY
+
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
