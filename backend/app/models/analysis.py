@@ -17,6 +17,13 @@ buggy engine is "a human must look at this", never "a machine's guess was filed 
 The column set also refuses to let a finding exist without its limits: ``limitations_code`` is
 ``NOT NULL`` (AR-4). A result that cannot state what it does not know is not a result this platform
 will store.
+
+``limitation_statements`` (§5.3) is the other half of that rule and lives in this module because it
+is the same subject: the corpus of disclaimers ``limitations_code`` names. It is versioned —
+``(code, version)`` is the primary key, with an ``effective_from``/``effective_to`` window — so the
+wording a finding was published with stays retrievable after the wording changes. A report generated
+years from now then prints what was true when the result was created rather than what is true now,
+which is the property §5.3's heading calls staying truthful retroactively.
 """
 
 from __future__ import annotations
@@ -50,7 +57,7 @@ if TYPE_CHECKING:
     from app.models.identity import User
     from app.models.reporting import ReportVersion
 
-__all__ = ["AnalysisJob", "AnalysisResult"]
+__all__ = ["AnalysisJob", "AnalysisResult", "LimitationStatement"]
 
 
 class AnalysisJob(Base, TimestampMixin):
@@ -234,10 +241,12 @@ class AnalysisResult(Base):
     #: A 0.94 from a softmax and a 0.94 from a threshold on a hand-tuned statistic do not mean the
     #: same thing, and a number without its basis invites exactly that confusion.
     confidence_basis: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
-    #: FK-ish to ``limitation_statements.code`` (§5.3), which arrives with the analysis milestone
-    #: that owns the versioned statement text. Kept as text, not a foreign key, so this table does
-    #: not depend on a table that does not exist yet — and so a legacy code that has since been
-    #: retired still reads back rather than dangling.
+    #: FK-ish to ``limitation_statements.code`` (§5.3) — the design's own word, and it stays that
+    #: way rather than becoming a real foreign key. A single-column key cannot express the reference,
+    #: which is to a *version* of a statement resolved through its effective window, not to one row;
+    #: and a code whose statements have all been retired must still read back on a historical result
+    #: instead of dangling. Resolution is the reader's job, and :class:`LimitationStatement` below is
+    #: the corpus it resolves against.
     limitations_code: Mapped[str] = mapped_column(Text, nullable=False)
     #: NOT NULL DEFAULT true, and no engine may set it false (ADR-0023). See the module docstring.
     requires_human_verification: Mapped[bool] = mapped_column(
@@ -347,4 +356,72 @@ class AnalysisResult(Base):
             postgresql_where=text("verification_status = 'unverified' AND is_current"),
         ),
         Index("ix_analysis_results_pipeline", "pipeline", "pipeline_version"),
+    )
+
+
+class LimitationStatement(Base):
+    """One version of one AR-4 disclaimer (§5.3).
+
+    ``analysis_results.limitations_code`` names a *code*; this table is what the code means, and the
+    version is why the table exists. Wording changes — a sentence is tightened after a case shows it
+    was misread, a qualifier is added — and every result ever published keeps pointing at the text
+    that was in force when it was created. Without versions, correcting a disclaimer would rewrite
+    the meaning of old findings; with them, a correction is a new row.
+
+    ``(code, version)`` is the primary key, so the table cannot hold two different texts that both
+    claim to be ``ELA`` version 3. That ambiguity is the one this schema least tolerates: it is the
+    difference between a report reproducing its own reasoning and a report reproducing *a* reasoning.
+
+    §5.3 specifies no ``id`` and no timestamps, and neither is added here. A surrogate key would sit
+    beside the composite one without adding an identity, and an ``updated_at`` on a versioned
+    statement would record edits to text a report may already have printed — the version number and
+    the ``effective_from``/``effective_to`` window are the honest answer to "which wording was this,
+    and when did it apply". The column set is asserted exactly in ``tests/db/test_models.py``, so
+    this stays a transcription of §5.3 rather than a table that grows by convenience.
+    """
+
+    __tablename__ = "limitation_statements"
+
+    #: ``ELA``, ``DEEPFAKE``, ``ALPR``, ``ASR``, ``DQT``, ``COPY_MOVE``, ``GEO_PLAUSIBILITY``, …
+    #: (§5.3). Text rather than an enum for the reason §9 gives for growing sets: every new engine
+    #: adds a code, and adding an enum label is migration-safe while retiring one is not.
+    code: Mapped[str] = mapped_column(Text, primary_key=True)
+    #: The version of the wording, ascending. A correction is a new version, never an edit.
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    #: The exact disclaimer rendered in the UI and embedded in reports (AR-4, RPT-01). NOT NULL and
+    #: never blank: a finding whose limitation statement is an empty string has satisfied the column
+    #: and defeated the rule.
+    text_en: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The window the wording was in force. ``effective_to`` NULL means "still current". Resolution
+    #: reads the statement whose window covers the result's ``created_at`` — which is what lets a
+    #: report printed years later reproduce what the reader was told at the time.
+    effective_from: Mapped[datetime | None] = mapped_column(
+        UTCDateTime, nullable=True, default=None
+    )
+    effective_to: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, default=None)
+    #: Who approved this wording. NULL on the seeded corpus, which no account existed to approve when
+    #: a fresh database was built — its approval of record is the ratified text of MASTER_PRD AR-4.
+    #: ``SET NULL`` matches ``retention_policies.approved_by``: §12 deactivates accounts rather than
+    #: erasing them, and a disclaimer that outlives its approver is still the disclaimer a report
+    #: printed. An approver is attribution, not a load-bearing reference.
+    approved_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, default=None
+    )
+
+    approved_by_user: Mapped[User | None] = relationship()
+
+    __table_args__ = (
+        # §5.3 names no constraints; these four are the ones without which the columns above cannot
+        # do what §5.3 says they do. Each is recorded in backend/migrations/README.md.
+        CheckConstraint("btrim(code) <> ''", name="code_is_not_blank"),
+        # Version 0 or -1 would make "the latest version" a query with no natural floor, and a
+        # corpus whose first entry is numbered 0 is a corpus somebody renumbered by hand.
+        CheckConstraint("version >= 1", name="version_is_at_least_one"),
+        CheckConstraint("btrim(text_en) <> ''", name="statement_text_is_not_blank"),
+        # An inverted window resolves to nothing, so the statement would silently stop existing at
+        # the moment it was meant to take effect.
+        CheckConstraint(
+            "effective_from IS NULL OR effective_to IS NULL OR effective_to >= effective_from",
+            name="window_does_not_end_before_it_starts",
+        ),
     )

@@ -125,6 +125,20 @@ def _settings_pointing_at(url: str) -> Iterator[None]:
     same settings object the API uses. ``reset_settings()`` on both sides keeps the cached singleton
     from leaking one test's database into another.
     """
+    # A tripwire, not a validation. `str(URL)` and `URL.render_as_string()` both MASK the password as
+    # `***`; only `render_as_string(hide_password=False)` returns a connectable string. Passing a
+    # masked URL therefore connects with the literal password "***", which fails as
+    # `password authentication failed for user "postgres"` — an error that names the wrong thing
+    # entirely and points at the server's credentials instead of at the caller's string conversion.
+    # Against a server using trust authentication it does not fail at all, which is how it reaches CI.
+    # Every alembic helper funnels through here, so this is the one place the check has to be.
+    if "***" in url:
+        raise ValueError(
+            "a masked database URL reached the migration runner: str(URL) and render_as_string() both "
+            "replace the password with '***'. Use render_as_string(hide_password=False), or pass the "
+            "URL object to create_engine()."
+        )
+
     previous = os.environ.get("DATABASE_URL")
     os.environ["DATABASE_URL"] = url
     reset_settings()

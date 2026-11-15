@@ -73,9 +73,11 @@ So every revision in this directory follows the same three rules.
 what it is about to remove, and raises a `RuntimeError` naming the dependents if so. Revision `0001`
 checks every table for rows; revision `0002` checks `user_roles`, `role_permissions` and `cases`;
 revision `0003` checks the seven tables it creates — which is what makes a rollback of the assistant
-record, the session history or the integrity sweeps refuse rather than quietly drop them. The message
-says what has to be removed first, because "cannot downgrade" without a reason is not an
-operator-facing message.
+record, the session history or the integrity sweeps refuse rather than quietly drop them; revision
+`0004` checks `limitation_statements` for statement versions it did not seed, because the seeded
+corpus comes back on the next upgrade and wording an operator approved does not. The message says
+what has to be removed first, because "cannot downgrade" without a reason is not an operator-facing
+message.
 
 **2. Data loss is opt-in, explicit, and spelled the same way everywhere.**
 
@@ -94,6 +96,13 @@ types, functions, sequences and triggers are what a table-by-table drop forgets.
 put it there. `tests/db/test_migrations.py::TestDowngradeLifecycle` asserts the empty result
 explicitly — zero enums, zero functions, zero sequences, zero triggers — and then rebuilds from
 nothing and re-runs `alembic check`.
+
+The guards also depend on `env.py` running the whole migration inside one transaction, so a revision
+that refuses part-way down rolls back the drops the revisions above it already performed. Rolling back
+from head to `0002` steps through `0004` — allowed to drop a corpus that holds nothing but seed rows
+— before it reaches `0003`, which refuses. The answer is "nothing changed", not "the disclaimer
+corpus is gone and the rollback failed anyway". `TestDataLossProtectionOnTheWayDown` asserts that on a
+real server.
 
 A revision drops only the types it created. `0003` introduces `chat_role` and `ai_message_status` and
 drops exactly those; it *borrows* `integrity_status` and `evidence_type` from `0001` for
@@ -214,22 +223,45 @@ Recorded here because a reader comparing the schema to §3.1 will otherwise find
 | §8.4's `retention_policies` | CHECKs `audit_is_never_deleted` and `deletion_names_an_approver`; no `UNIQUE (scope, evidence_type)` | The two CHECKs encode ADR-0020's decisions — the audit trail is never deleted, and a hard delete names a second approver — where an administrator cannot reach around them. The unique constraint is *absent* on purpose: a scope-wide policy and a narrower type-specific one may legitimately coexist, and which one wins is a resolution rule belonging to the retention service in M19. Forbidding the overlap now would forbid the override before anybody designed it. |
 | §8.4's `system_settings.schema` | The column is `schema`; the model attribute is `value_schema` | `SystemSetting.schema` in Python reads as the *database* schema. The same device `audit_logs` uses to keep a column named `metadata` behind `event_metadata`: the design names the column, and the attribute name is the code's problem. |
 | §10: `integrity_checks` monthly-partitioned, cold after 24 months | Unpartitioned, with the append-only `REVOKE`s applied | Partitioning is roadmap task 2.5 and needs a retention policy to partition *by*; converting an existing table to a partitioned one means rewriting it, so doing it before there is data is the cheap moment and doing it badly is not recoverable. The append-only half of §10 is in place now: `0003` revokes `UPDATE`/`DELETE`/`TRUNCATE` from `tlx_app`, `tlx_worker` and `tlx_auditor` exactly as `0001` does for the two ledgers. |
+| §5.3's column list | Six columns, and no `created_at`/`updated_at` | §5.3 names six columns and no others, so none are added — `tests/db/test_models.py::TestLimitationCorpus` asserts the column set exactly, in both directions. This does break the convention every other table here follows, deliberately: the row's place in time *is* `effective_from`/`effective_to`, and an `updated_at` on a versioned disclaimer would record edits to wording a report may already have printed, making "which text did the reader see" answerable two ways — one of them mutable. A correction is a new version, and a new version is a new row. |
+| §5.3 names no constraints | Four CHECKs: `code_is_not_blank`, `version_is_at_least_one`, `statement_text_is_not_blank`, `window_does_not_end_before_it_starts` | Without them the columns cannot do what §5.3 says they do. A blank `text_en` satisfies `NOT NULL` while printing nothing under a finding, which defeats AR-4 rather than enforcing it; a blank `code` is unresolvable; a version below 1 leaves "the latest version" with no floor; and an inverted window resolves to *nothing*, so the wording silently stops existing at the moment it was meant to take effect while the row still looks present. |
+| §5.3: `approved_by uuid`, with no FK noted | `FK → users ON DELETE SET NULL`, plus an `approved_by_user` relationship | §5.2 writes "FK → users" explicitly where it means one and §5.3 does not, so this is a reading rather than a transcription — and it is the reading the schema already made: every one of the thirty `*_by` uuid columns is a foreign key to `users`, including `retention_policies.approved_by`, which §8.4 lists in exactly the same two-word form. `SET NULL` because §12 permits erasure on a documented legal request, and a disclaimer that outlives its approver is still the disclaimer a report printed; `RESTRICT` would fail a lawful erasure on a reference table nobody drafting the request would think of. |
+| §5.3's prose: "a `result_limitation_snapshot` column stores the resolved text" | **Not added anywhere** | No table's column list in the design document contains that name — §5.2's list for `analysis_results` does not include it, and §6.1's analogous column is `limitations_snapshot` on `comparisons`, a table M15 owns. Adding a `NOT NULL` column to a table shipped in `0001` means a default or a backfill for rows this milestone does not own, on a guess about which table §5.3 meant. Recorded as outstanding rather than placed by inference; it belongs to the milestone that owns the consuming table. |
+| §5.3's code list: `ELA`, `DEEPFAKE`, `ALPR`, `ASR`, `DQT`, `COPY_MOVE`, `GEO_PLAUSIBILITY`, … | Revision `0004` seeds the first four, at version 1 | Those four are the ones `MASTER_PRD.md` AR-4 ratifies verbatim, and the seed is a transcription of that text — asserted *against the document* by `TestLimitationStatementRules`, so a paraphrase fails the suite. The list in §5.3 ends with an ellipsis, so it is illustrative; the other three codes have no ratified wording anywhere in `docs/`, and the engines that need them (M8's geographic plausibility, M9's DQT fingerprinting and copy-move detection) do not exist. A disclaimer states what a specific engine cannot do, so writing one now would be inventing wording nobody reviewed and attaching it to behaviour nobody built. Each arrives with its engine as its own data migration, which is what §11(6) asks for. |
+| §5.3 specifies no indexes | The `(code, version)` primary key is the only one | Resolution filters on `code` first, which the key already leads with, and the corpus is dozens of rows growing by one row per wording change. A second index would be maintenance with nothing to speed up. `TestLimitationCorpus` asserts the absence, so one added later is a decision rather than a drift. |
 | §10's append-only set | `ai_messages` is **not** in it | §10 names three tables: `audit_logs`, `custody_events`, `integrity_checks`. A transcript is immutable by construction — no `updated_at`, no `deleted_at`, and AI-08's regenerate *appends* — but revoking `DELETE` from it would be a policy decision dressed as schema, and that policy is M17's to make. |
 
 ### What revision `0003` does not do
 
 Recorded because a reader following the roadmap will look for these:
 
-* **`limitation_statements` (§5.3) does not exist yet.** `analysis_results.limitations_code` is the
-  `NOT NULL` reference to it, and §13 lists it among the seeds. Roadmap tasks 2.3 and 2.6 name it; it
-  is the one table in the M2 list still missing, and M2's exit criterion (c) — "every seeded limitation
-  statement resolves by `(code, version)`" — cannot be met until it and its seeds exist.
 * **No partitioning** (§10, roadmap 2.5) — see the deviations table above.
-* **No seeds beyond `0002`'s.** §13 also lists a pipeline catalogue and example plate formats; neither
-  table exists yet, so there is nothing to seed.
+* **No seeds.** §13 lists a pipeline catalogue and example plate formats; neither table exists yet, so
+  there is nothing to seed. The reference data `0003`'s tables depend on is vocabulary, and it is
+  enforced by CHECK constraints and native enums rather than by rows.
 * **No grants management beyond the bootstrap.** `infra/postgres/initdb/10-roles.sql` creates the roles
   and arranges default privileges; per-role credentials and any narrower grant policy are a deployment
   concern and the remaining half of roadmap task 2.4.
+
+### What revision `0004` does not do
+
+`limitation_statements` (§5.3) exists at head, with the AR-4 corpus seeded, which closes roadmap tasks
+2.3 and 2.6 for this table and M2's exit criterion (c). What it still does not do:
+
+* **It seeds four codes, not §5.3's whole illustrative list** — see the deviations table. `DQT`,
+  `COPY_MOVE` and `GEO_PLAUSIBILITY` arrive with the engines that need them.
+* **No `result_limitation_snapshot` column**, on this table or any other — see the deviations table.
+  The resolution rule §5.3 describes ("the statement text in force at result creation") is therefore
+  still a reader's query rather than a stored column. `TestLimitationStatementRules` runs that query
+  against a real corpus and asserts it answers, including across a version change, so the rule is
+  tested; it is simply not yet snapshotted at write time.
+* **No overlap exclusion on the effective windows.** Two versions of one code whose windows overlap
+  would make "in force at T" ambiguous. Expressing that in PostgreSQL needs an `EXCLUDE USING gist`
+  constraint over `tstzrange`, which needs `btree_gist` — and this schema enables no contrib
+  extensions at all (see the `citext`/`pgcrypto` rows above), a decision that should not be reversed
+  from inside a seed revision. The corpus is written by migrations only, and a migration that closes
+  the previous version's window when it opens a new one cannot produce an overlap; the constraint
+  belongs to whichever milestone first lets an administrator edit the corpus directly.
 
 `role_permissions` is seeded **empty** on purpose. Deciding which role holds which capability *is*
 the authorization design, and that is milestone M3. An empty matrix denies everything, so a missing

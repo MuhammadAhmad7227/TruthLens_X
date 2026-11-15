@@ -58,6 +58,9 @@ ENTITY_TO_TABLE: Final[dict[str, str]] = {
     "custody_events": "custody_events",
     "analysis_jobs": "analysis_jobs",
     "analysis_results": "analysis_results",
+    # §5.3, and roadmap 2.3 names it: the versioned AR-4 disclaimer corpus that
+    # ``analysis_results.limitations_code`` has pointed at since revision 0001.
+    "limitation_statements": "limitation_statements",
     "evidence_artifacts": "derivatives",
     "case_notes": "case_notes",
     "reports": "reports",
@@ -144,6 +147,22 @@ EVENT_TIME_TABLES: Final[dict[str, str]] = {
 #: *appends* a turn) and a session, whose only change is revocation and which records that with
 #: ``revoked_at`` — a more precise answer than a generic "last updated" would be.
 WRITE_ONCE_TABLES: Final[frozenset[str]] = frozenset({"ai_messages", "user_sessions"})
+
+#: Tables whose primary key is the identity the document specifies rather than a surrogate ``id``.
+#: ``case_members`` and ``role_permissions`` are associations, and §5.3 makes ``(code, version)`` the
+#: identity of a disclaimer: two rows both claiming to be ELA version 3 would be two answers to
+#: "what was this finding's limitation", which is the ambiguity versioning exists to remove.
+COMPOSITE_KEY_TABLES: Final[frozenset[str]] = frozenset(
+    {"case_members", "role_permissions", "limitation_statements"}
+)
+
+#: Tables ``DATABASE_DESIGN.md`` specifies exhaustively, so the house timestamp convention does not
+#: reach them. §5.3 names six columns for ``limitation_statements`` and no others: its place in time
+#: is ``effective_from``/``effective_to``, the window a wording was in force, and an ``updated_at``
+#: beside that would record edits to text a report may already have printed. The version number is
+#: the honest answer to "which wording was this". :class:`TestLimitationCorpus` asserts the column
+#: set exactly, so this exclusion cannot become a way to grow the table quietly.
+TIMESTAMP_FREE_TABLES: Final[frozenset[str]] = frozenset({"limitation_statements"})
 
 #: §10: case_id leads the composite index on every case-scoped table, because the authorization
 #: choke point always supplies it.
@@ -246,7 +265,7 @@ class TestPrimaryKeys:
     def test_every_table_has_a_primary_key(self, name: str) -> None:
         assert table(name).primary_key.columns, f"{name} has no primary key"
 
-    @pytest.mark.parametrize("name", sorted(EXPECTED_TABLES - {"case_members", "role_permissions"}))
+    @pytest.mark.parametrize("name", sorted(EXPECTED_TABLES - COMPOSITE_KEY_TABLES))
     def test_entity_tables_use_a_single_uuid_key_named_id(self, name: str) -> None:
         columns = list(table(name).primary_key.columns)
         assert len(columns) == 1, f"{name} should have a single-column primary key"
@@ -514,6 +533,7 @@ class TestRelationships:
             ("CaseNote", "evidence", "EvidenceItem"),
             ("Derivative", "produced_by_job", "AnalysisJob"),
             ("Notification", "user", "User"),
+            ("LimitationStatement", "approved_by_user", "User"),
         ],
     )
     def test_typed_relationships_point_where_the_domain_says(
@@ -556,7 +576,10 @@ class TestRelationships:
 
 class TestTimestamps:
     @pytest.mark.parametrize(
-        "name", sorted(EXPECTED_TABLES - APPEND_ONLY_TABLES - set(EVENT_TIME_TABLES))
+        "name",
+        sorted(
+            EXPECTED_TABLES - APPEND_ONLY_TABLES - TIMESTAMP_FREE_TABLES - set(EVENT_TIME_TABLES)
+        ),
     )
     def test_every_table_records_when_a_row_was_created(self, name: str) -> None:
         column = table(name).columns.get("created_at")
@@ -574,6 +597,7 @@ class TestTimestamps:
             EXPECTED_TABLES
             - APPEND_ONLY_TABLES
             - WRITE_ONCE_TABLES
+            - TIMESTAMP_FREE_TABLES
             - {"derivatives", "analysis_results", "report_versions"}
         ),
     )
@@ -1422,6 +1446,157 @@ class TestPlatformAdministration:
         for name in ("system_settings", "feature_flags", "retention_policies"):
             constraint = _only_foreign_key_to(table(name), "users")
             assert constraint.ondelete == "SET NULL", name
+
+
+class TestLimitationCorpus:
+    """§5.3's versioned disclaimer corpus — transcribed here, not inherited from the model.
+
+    ``analysis_results.limitations_code`` has been ``NOT NULL`` since revision 0001: AR-4's rule that a
+    finding which cannot state its limits is not a finding. This table is what the code means, and the
+    assertions below are a transcription of §5.3's six columns rather than a reading of the model,
+    because the failure worth catching is a model that has quietly grown a column the design never
+    ratified — on the one table whose text ends up printed in a report years after it was written.
+    """
+
+    #: §5.3's columns, in the order the document lists them. Set equality is asserted below, in both
+    #: directions: a missing column loses a rule, and an extra one is behaviour nobody reviewed.
+    COLUMNS: Final[tuple[str, ...]] = (
+        "code",
+        "version",
+        "text_en",
+        "effective_from",
+        "effective_to",
+        "approved_by",
+    )
+
+    def test_the_column_set_is_exactly_what_the_design_specifies(self) -> None:
+        assert tuple(table("limitation_statements").columns.keys()) == self.COLUMNS
+
+    def test_code_and_version_are_the_primary_key(self) -> None:
+        """The identity of a disclaimer is which wording, and which version of it.
+
+        A surrogate ``id`` beside this key would add a second way to address a row without adding an
+        identity, and two rows both claiming to be ELA version 3 would be two different answers to
+        "what was this finding's limitation" — the ambiguity the versioning exists to remove.
+        """
+        key = [column.name for column in table("limitation_statements").primary_key.columns]
+        assert key == ["code", "version"]
+
+    def test_a_code_is_text_because_the_set_grows(self) -> None:
+        """§9's rule for a growing vocabulary: ``text`` plus a lookup, not a native enum.
+
+        Every engine the platform gains adds a code, and while adding an enum label is migration-safe,
+        retiring one is not — it needs a type rebuild with an explicit data path. A disclaimer code
+        must stay retireable, because a code whose statements are all withdrawn is exactly the case
+        §5.3's versioning has to survive.
+        """
+        column = table("limitation_statements").columns["code"]
+        assert not isinstance(column.type, SAEnum)
+        assert column.type.__class__.__name__ == "Text"
+        assert column.nullable is False
+
+    def test_the_statement_text_is_mandatory_and_cannot_be_blank(self) -> None:
+        """NOT NULL per §5.3, and non-blank because an empty string satisfies NOT NULL while saying
+        nothing — a finding whose disclaimer is ``""`` has met the column and defeated AR-4."""
+        column = table("limitation_statements").columns["text_en"]
+        assert column.nullable is False
+        assert column.type.__class__.__name__ == "Text"
+        assert column.server_default is None, "a default disclaimer would be a fabricated one"
+        assert (
+            _check_sql(
+                "limitation_statements", "ck_limitation_statements_statement_text_is_not_blank"
+            )
+            == "btrim(text_en) <> ''"
+        )
+
+    def test_the_effective_window_is_open_until_a_revision_closes_it(self) -> None:
+        """``effective_to`` NULL means "still current"; neither bound has a default.
+
+        A default on ``effective_from`` would date a statement by the clock of whichever server
+        inserted it, and §13(6) requires every environment to end up identical — so the seeded corpus
+        carries an explicit date and a later revision closes a window deliberately, with an approver.
+        """
+        columns = table("limitation_statements").columns
+        for name in ("effective_from", "effective_to"):
+            column = columns[name]
+            assert column.nullable is True, f"§5.3 leaves {name} optional"
+            assert isinstance(column.type, DateTime)
+            assert column.type.timezone is True, f"{name} stores an instant (§1 DB-6)"
+            assert column.server_default is None
+
+    def test_a_window_cannot_close_before_it_opens(self) -> None:
+        """An inverted window resolves to nothing, so the wording would silently stop existing at the
+        moment it was meant to take effect — and every result citing that code would print no
+        disclaimer at all while the row still looked present."""
+        assert _check_sql(
+            "limitation_statements", "ck_limitation_statements_window_does_not_end_before_it_starts"
+        ) == ("effective_from IS NULL OR effective_to IS NULL OR effective_to >= effective_from")
+
+    def test_versions_are_counted_from_one(self) -> None:
+        """So "the latest version" has a natural floor, and a corpus whose first entry is numbered
+        zero is visibly one somebody renumbered by hand."""
+        assert (
+            _check_sql("limitation_statements", "ck_limitation_statements_version_is_at_least_one")
+            == "version >= 1"
+        )
+        assert (
+            table("limitation_statements").columns["version"].type.__class__.__name__ == "Integer"
+        )
+
+    def test_a_code_cannot_be_blank(self) -> None:
+        assert _check_sql(
+            "limitation_statements", "ck_limitation_statements_code_is_not_blank"
+        ) == ("btrim(code) <> ''")
+
+    def test_an_approver_leaving_does_not_take_the_disclaimer_with_them(self) -> None:
+        """``SET NULL``, matching ``retention_policies.approved_by``.
+
+        §12 deactivates accounts rather than erasing them, but an erasure on documented legal request
+        is still a path; a disclaimer that outlives its approver is nonetheless the disclaimer a
+        report printed. Attribution is not a load-bearing reference, and ``RESTRICT`` here would make
+        a lawful erasure fail on a table nobody would think to look at.
+        """
+        constraint = _only_foreign_key_to(table("limitation_statements"), "users")
+        assert constraint.ondelete == "SET NULL"
+        assert table("limitation_statements").columns["approved_by"].nullable is True
+
+    def test_the_corpus_carries_no_insert_or_update_stamps(self) -> None:
+        """§5.3 specifies no timestamps, and none are added.
+
+        The row's place in time *is* its effective window. An ``updated_at`` beside a version number
+        would record edits to wording a report may already have printed, and would make "which text
+        did the reader see" answerable two different ways — one of them mutable. A correction is a new
+        version, and a new version is a new row with its own window.
+        """
+        columns = set(table("limitation_statements").columns.keys())
+        assert not columns & {"created_at", "updated_at", "deleted_at"}
+
+    def test_the_primary_key_is_the_only_index(self) -> None:
+        """Resolution filters on ``code`` first, which the ``(code, version)`` key already leads with.
+
+        The corpus is dozens of rows and grows by one row per wording change, so a second index here
+        would be maintenance with nothing to speed up. Asserted rather than left implicit: an index
+        added to a table nobody queries is invisible until it slows the write path.
+        """
+        assert {str(index.name) for index in table("limitation_statements").indexes} == set()
+
+    def test_limitations_code_stays_a_text_reference_and_not_a_foreign_key(self) -> None:
+        """§5.3's own word is "FK-ish", and turning it into a foreign key would break two things.
+
+        A single-column key cannot express the reference, which is to a *version* resolved through an
+        effective window rather than to one row — and it would make a retired code unreadable, so a
+        historical result whose statements have all been withdrawn would fail to load instead of
+        reporting the wording it was published with. The constraint stays in the reader, which is
+        where the resolution rule lives.
+        """
+        column = table("analysis_results").columns["limitations_code"]
+        assert column.nullable is False
+        assert column.type.__class__.__name__ == "Text"
+        assert not column.foreign_keys
+        targets = {
+            foreign_key.column.table.name for foreign_key in table("analysis_results").foreign_keys
+        }
+        assert "limitation_statements" not in targets
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────────────────────────

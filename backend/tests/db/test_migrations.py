@@ -35,6 +35,7 @@ from app.db.transaction import atomic
 from app.models import metadata
 from tests.db.conftest import (
     BACKEND_ROOT,
+    _settings_pointing_at,
     alembic_check,
     alembic_downgrade,
     alembic_in_a_fresh_process,
@@ -48,16 +49,18 @@ from tests.db.conftest import (
 pytestmark = pytest.mark.integration
 
 #: The revision the schema should be at after ``upgrade head``.
-HEAD_REVISION: Final[str] = "0003"
+HEAD_REVISION: Final[str] = "0004"
 
-#: The revision 0003 replaced. Named separately because the re-application test needs the pair: the
+#: The revision 0004 replaced. Named separately because the re-application test needs the pair: the
 #: path a deployment takes is "already at the previous revision, apply the next one", not "build
 #: everything from nothing", and those two executions are not the same.
-PREVIOUS_REVISION: Final[str] = "0002"
+PREVIOUS_REVISION: Final[str] = "0003"
 
-#: The revision that seeds the reference data. Named because the idempotence test re-runs exactly that
-#: one and no further: upgrading to head from a stamped-behind state would re-apply 0003 to a database
-#: that already holds its tables.
+#: The revision that seeds the role and capability reference data. Named because the idempotence test
+#: re-runs exactly that one and no further: upgrading to head from a stamped-behind state would
+#: re-apply 0003 and 0004 to a database that already holds their tables. (Revision 0004 seeds too —
+#: the AR-4 corpus — and its idempotence is asserted where its content is, in TestLimitationStatement
+#: Rules.)
 SEED_REVISION: Final[str] = "0002"
 
 #: §4.3's fourteen event types and SECURITY_ARCHITECTURE §4.1's six roles, spelled out here rather
@@ -662,8 +665,8 @@ class TestSeedData:
             ).all()
 
         # Stamp back past the seed and re-apply *only* the seed revision. Upgrading to head instead
-        # would re-run 0003 against a database that already has its tables, and the failure would be
-        # about a relation that exists rather than about whether seeding can be repeated.
+        # would re-run 0003 and 0004 against a database that already has their tables, and the
+        # failure would be about a relation that exists rather than about whether seeding repeats.
         alembic_stamp(scratch_database, "0001")
         try:
             alembic_upgrade(scratch_database, SEED_REVISION)
@@ -2350,10 +2353,552 @@ class TestPlatformAdministrationRules:
         assert _refused_by(excinfo.value) == "uq_system_settings_key"
 
 
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# Revision 0004: the AR-4 limitation corpus
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+
+INSERT_LIMITATION_STATEMENT: Final[str] = """
+INSERT INTO limitation_statements (code, version, text_en, effective_from, effective_to, approved_by)
+VALUES (:code, :version, :text_en, CAST(:effective_from AS timestamptz),
+        CAST(:effective_to AS timestamptz), :approved_by)
+RETURNING code, version
+"""
+
+#: The resolution §5.3 describes in prose: the newest version of a code whose window covers the
+#: moment the result was created. Written out rather than left to a service, because the corpus is
+#: worthless if the query it exists to answer does not return one row.
+RESOLVE_STATEMENT: Final[str] = """
+SELECT text_en, version FROM limitation_statements
+WHERE code = :code
+  AND (effective_from IS NULL OR effective_from <= :moment)
+  AND (effective_to IS NULL OR effective_to > :moment)
+ORDER BY version DESC
+LIMIT 1
+"""
+
+#: The codes §5.3 lists, transcribed. That list ends with an ellipsis, so it is illustrative rather
+#: than exhaustive — but a corpus that quietly invents a code, or renames one, should fail here.
+DOCUMENTED_LIMITATION_CODES: Final[tuple[str, ...]] = (
+    "ELA",
+    "DEEPFAKE",
+    "ALPR",
+    "ASR",
+    "DQT",
+    "COPY_MOVE",
+    "GEO_PLAUSIBILITY",
+)
+
+#: The subset whose wording ``MASTER_PRD.md`` AR-4 ratifies verbatim, which is what revision 0004
+#: seeds. The remaining codes have no ratified text anywhere in ``docs/``, and the engines that need
+#: them do not exist yet — a disclaimer is a statement about what a specific engine cannot do, so
+#: writing one now would be inventing wording nobody reviewed and attaching it to behaviour nobody
+#: built. Each arrives with its engine as its own data migration (§11(6)); the omission is recorded
+#: in ``backend/migrations/README.md``.
+RATIFIED_LIMITATION_CODES: Final[tuple[str, ...]] = ("ALPR", "ASR", "DEEPFAKE", "ELA")
+
+#: AR-4's label for each ratified code. The document's labels are prose ("Deepfake indicators");
+#: §5.3's codes are the vocabulary. The mapping is the only judgement in the seed, so it is written
+#: down here rather than buried in an insert statement.
+RATIFIED_LABELS: Final[dict[str, str]] = {
+    "ELA": "ELA",
+    "DEEPFAKE": "Deepfake indicators",
+    "ALPR": "ALPR",
+    "ASR": "ASR",
+}
+
+
+class TestLimitationStatementRules:
+    """§5.3's corpus on the server: what it seeds, how it resolves, what it refuses.
+
+    M2's exit criterion (c) — "every seeded limitation statement resolves by ``(code, version)``" —
+    is the first test. The second is the one that makes the corpus worth having: the wording in the
+    database is the wording ``MASTER_PRD.md`` AR-4 ratified, character for character. A disclaimer is
+    a published statement about the limits of a forensic method, so a paraphrase is not a small
+    difference; it is the platform saying something its own documentation does not say.
+    """
+
+    @staticmethod
+    def _revision() -> Any:
+        """Revision 0004 as a module: the corpus and its window are its constants, not this file's."""
+        return _load_revision("0004_limitation_statements")
+
+    @staticmethod
+    def _prd_statements() -> dict[str, str]:
+        """AR-4's examples, read from ``MASTER_PRD.md`` and normalised for line wrapping.
+
+        Read rather than transcribed. The property under test is that the database holds the
+        *ratified* wording, and a test carrying its own copy of that wording could only ever agree
+        with itself — the same reason :class:`TestRoleBootstrap` reads ``10-roles.sql`` instead of
+        restating it. Whitespace is collapsed because the document wraps each sentence across lines
+        inside a markdown bullet, while the database stores it unwrapped.
+        """
+        path = BACKEND_ROOT.parent / "docs" / "MASTER_PRD.md"
+        assert path.is_file(), f"{path} is missing — AR-4 is the authority for the seeded wording"
+        document = path.read_text(encoding="utf-8")
+        for heading in ("**AR-4", "**AR-5"):
+            assert heading in document, (
+                f"{heading} moved or was renamed in MASTER_PRD.md; this test finds AR-4's "
+                "examples by heading, so the seed would silently stop being checked against them"
+            )
+        block = document.split("**AR-4", 1)[1].split("**AR-5", 1)[0]
+        found = {
+            label.strip(): " ".join(body.split())
+            for label, body in re.findall(r"^- \*(.+?)\*: \"(.+?)\"\s*$", block, flags=re.S | re.M)
+        }
+        assert found, "no AR-4 examples were parsed — the pattern no longer matches the document"
+        return found
+
+    def test_every_seeded_statement_resolves_by_its_code_and_version(
+        self, scratch_engine: Engine
+    ) -> None:
+        """M2 exit criterion (c), literally: each code at its seeded version answers with text.
+
+        Exactly one row, and not blank. A code that resolved to two rows would make "the ELA
+        disclaimer" ambiguous, and one that resolved to an empty string would satisfy ``NOT NULL``
+        while printing nothing under a finding.
+        """
+        with scratch_engine.connect() as connection:
+            for code in RATIFIED_LIMITATION_CODES:
+                found = connection.execute(
+                    text(
+                        "SELECT text_en FROM limitation_statements "
+                        "WHERE code = :code AND version = :version"
+                    ),
+                    {"code": code, "version": 1},
+                ).all()
+                assert len(found) == 1, f"{code} v1 resolved to {len(found)} rows, not one"
+                assert found[0][0].strip(), f"{code} v1 resolved to blank text"
+
+    def test_the_seeded_wording_is_the_wording_the_prd_ratifies(
+        self, scratch_engine: Engine
+    ) -> None:
+        """The corpus is a transcription of AR-4, asserted against AR-4 itself.
+
+        Set equality in both directions: a statement whose text drifted fails, a code seeded with
+        wording no document ratifies fails, and a ratified statement left unseeded fails. This is the
+        test that makes "fixed, versioned limitations statement" (AR-4) a property of the database
+        rather than a description of an intention.
+        """
+        ratified = self._prd_statements()
+        with scratch_engine.connect() as connection:
+            rows = connection.execute(text("SELECT code, text_en FROM limitation_statements")).all()
+        # `str()` because a `text()` query hands back rows mypy types as `object`: the coercion is
+        # explicit rather than an annotation that asserts what the driver has not promised.
+        seeded: dict[str, str] = {str(code): str(statement) for code, statement in rows}
+        assert seeded == {code: ratified[label] for code, label in RATIFIED_LABELS.items()}, (
+            "the seeded corpus is not AR-4's ratified wording; a disclaimer is published text, so it "
+            "is either the ratified sentence or it is something nobody approved"
+        )
+
+    def test_the_ratified_codes_are_the_documented_ones_the_prd_gives_wording_for(self) -> None:
+        """The two constants above agree with each other and with §5.3's list.
+
+        Hermetic, so it also runs where there is no database: a code added to §5.3 and given wording
+        in AR-4 must be added in both places, and the failure names the mismatch instead of showing
+        up as a KeyError in the test above.
+        """
+        assert set(RATIFIED_LIMITATION_CODES) == set(RATIFIED_LABELS)
+        assert set(RATIFIED_LIMITATION_CODES) <= set(DOCUMENTED_LIMITATION_CODES), (
+            "the corpus seeds a code §5.3 does not name"
+        )
+        assert set(self._prd_statements()) == set(RATIFIED_LABELS.values()), (
+            "AR-4's examples changed; the seed and RATIFIED_LABELS have to change with them"
+        )
+
+    def test_the_seeded_window_is_a_date_and_not_a_clock(self, scratch_engine: Engine) -> None:
+        """Deterministic across environments (§13(6)), still open, and attributed to nobody.
+
+        ``effective_from`` is the revision's own date rather than ``now()``: two databases built from
+        the same migrations must hold the same corpus byte for byte, or "every environment is
+        identical" is true of the schema and not of the data. ``effective_to`` NULL means still
+        current. ``approved_by`` NULL is the honest value — no account exists when a migration writes
+        a fresh database's corpus, and its approval of record is the ratified text of AR-4.
+        """
+        revision = self._revision()
+        with scratch_engine.connect() as connection:
+            rows = connection.execute(
+                text(
+                    "SELECT code, effective_from, effective_to, approved_by "
+                    "FROM limitation_statements"
+                )
+            ).all()
+        assert rows, "the corpus is empty, so nothing below is being tested"
+        for code, effective_from, effective_to, approved_by in rows:
+            assert effective_from == revision.CORPUS_EFFECTIVE_FROM, (
+                f"{code}'s window opens at {effective_from}, not at the revision's own date"
+            )
+            assert effective_to is None, f"{code} was seeded already superseded"
+            assert approved_by is None, f"{code} was seeded naming an approver who does not exist"
+
+    def test_a_statement_resolves_through_its_effective_window(
+        self, scratch_engine: Engine
+    ) -> None:
+        """The window is load-bearing, not decoration.
+
+        The moment is derived from the corpus's own ``effective_from`` rather than from ``now()``, so
+        the test means the same thing whenever it runs — and so it also proves the window is a real
+        bound: a moment before it opens resolves to nothing at all.
+        """
+        revision = self._revision()
+        in_force = revision.CORPUS_EFFECTIVE_FROM + timedelta(days=1)
+        before = revision.CORPUS_EFFECTIVE_FROM - timedelta(days=1)
+        with scratch_engine.connect() as connection:
+            for code in RATIFIED_LIMITATION_CODES:
+                resolved = connection.execute(
+                    text(RESOLVE_STATEMENT), {"code": code, "moment": in_force}
+                ).all()
+                assert len(resolved) == 1, f"{code} did not resolve to one row at {in_force}"
+                assert resolved[0][1] == 1
+            assert (
+                connection.execute(text(RESOLVE_STATEMENT), {"code": "ELA", "moment": before}).all()
+                == []
+            ), "a statement resolved before its window opened"
+
+    def test_a_correction_is_a_new_version_beside_the_old_one(self, db_session: Session) -> None:
+        """§5.3's whole reason to exist, observed on the server.
+
+        Version 2 closes version 1's window and opens its own; version 1 stays. A result created
+        before the change still resolves to the wording it was published with, and one created after
+        resolves to the correction. Editing version 1 in place would rewrite the meaning of every
+        finding that ever cited it, which is the failure the versioning exists to prevent.
+        """
+        opened = datetime(2027, 1, 1, tzinfo=UTC)
+        with atomic(db_session):
+            db_session.execute(
+                text(
+                    "UPDATE limitation_statements SET effective_to = :opened "
+                    "WHERE code = 'ELA' AND version = 1"
+                ),
+                {"opened": opened},
+            )
+            db_session.execute(
+                text(INSERT_LIMITATION_STATEMENT),
+                {
+                    "code": "ELA",
+                    "version": 2,
+                    "text_en": (
+                        "Error Level Analysis highlights recompression inconsistency, and the "
+                        "signature is also produced by ordinary re-saving. Corrected wording."
+                    ),
+                    "effective_from": opened,
+                    "effective_to": None,
+                    "approved_by": None,
+                },
+            )
+
+        earlier = db_session.execute(
+            text(RESOLVE_STATEMENT), {"code": "ELA", "moment": opened - timedelta(days=1)}
+        ).all()
+        later = db_session.execute(
+            text(RESOLVE_STATEMENT), {"code": "ELA", "moment": opened + timedelta(days=1)}
+        ).all()
+        assert [row[1] for row in earlier] == [1], "the pre-correction moment resolved to v2"
+        assert [row[1] for row in later] == [2], "the post-correction moment still resolved to v1"
+        assert earlier[0][0] != later[0][0]
+        assert (
+            _count(db_session, "SELECT count(*) FROM limitation_statements WHERE code = 'ELA'") == 2
+        )
+
+    @pytest.mark.parametrize("text_en", ["", "   "])
+    def test_a_blank_disclaimer_is_refused(self, db_session: Session, text_en: str) -> None:
+        """``NOT NULL`` alone would let a finding publish an empty limitation statement."""
+        with pytest.raises(IntegrityError) as excinfo, atomic(db_session):
+            db_session.execute(
+                text(INSERT_LIMITATION_STATEMENT),
+                {
+                    "code": "PROBE",
+                    "version": 1,
+                    "text_en": text_en,
+                    "effective_from": None,
+                    "effective_to": None,
+                    "approved_by": None,
+                },
+            )
+        assert _refused_by(excinfo.value) == (
+            "ck_limitation_statements_statement_text_is_not_blank"
+        )
+
+    @pytest.mark.parametrize("code", ["", "   "])
+    def test_a_blank_code_is_refused(self, db_session: Session, code: str) -> None:
+        """A blank code is unresolvable: ``limitations_code`` could name it and nothing would answer."""
+        with pytest.raises(IntegrityError) as excinfo, atomic(db_session):
+            db_session.execute(
+                text(INSERT_LIMITATION_STATEMENT),
+                {
+                    "code": code,
+                    "version": 1,
+                    "text_en": "A probe statement.",
+                    "effective_from": None,
+                    "effective_to": None,
+                    "approved_by": None,
+                },
+            )
+        assert _refused_by(excinfo.value) == "ck_limitation_statements_code_is_not_blank"
+
+    @pytest.mark.parametrize("version", [0, -1])
+    def test_a_version_below_one_is_refused(self, db_session: Session, version: int) -> None:
+        with pytest.raises(IntegrityError) as excinfo, atomic(db_session):
+            db_session.execute(
+                text(INSERT_LIMITATION_STATEMENT),
+                {
+                    "code": "PROBE",
+                    "version": version,
+                    "text_en": "A probe statement.",
+                    "effective_from": None,
+                    "effective_to": None,
+                    "approved_by": None,
+                },
+            )
+        assert _refused_by(excinfo.value) == "ck_limitation_statements_version_is_at_least_one"
+
+    def test_a_window_that_closes_before_it_opens_is_refused(self, db_session: Session) -> None:
+        """An inverted window resolves to nothing, so the wording would vanish while looking present."""
+        opened = datetime(2027, 1, 1, tzinfo=UTC)
+        with pytest.raises(IntegrityError) as excinfo, atomic(db_session):
+            db_session.execute(
+                text(INSERT_LIMITATION_STATEMENT),
+                {
+                    "code": "PROBE",
+                    "version": 1,
+                    "text_en": "A probe statement.",
+                    "effective_from": opened,
+                    "effective_to": opened - timedelta(days=1),
+                    "approved_by": None,
+                },
+            )
+        assert _refused_by(excinfo.value) == (
+            "ck_limitation_statements_window_does_not_end_before_it_starts"
+        )
+
+    def test_two_statements_cannot_claim_the_same_code_and_version(
+        self, db_session: Session
+    ) -> None:
+        """The composite key is the ambiguity rule: one wording per ``(code, version)``, ever."""
+        params = {
+            "code": "PROBE",
+            "version": 1,
+            "text_en": "A probe statement.",
+            "effective_from": None,
+            "effective_to": None,
+            "approved_by": None,
+        }
+        with atomic(db_session):
+            db_session.execute(text(INSERT_LIMITATION_STATEMENT), params)
+        with pytest.raises(IntegrityError) as excinfo, atomic(db_session):
+            db_session.execute(
+                text(INSERT_LIMITATION_STATEMENT), {**params, "text_en": "Different wording."}
+            )
+        assert _refused_by(excinfo.value) == "pk_limitation_statements"
+
+    def test_an_approver_being_erased_leaves_the_wording_in_place(
+        self, db_session: Session
+    ) -> None:
+        """``SET NULL``, observed: the disclaimer survives the account that approved it.
+
+        §12 permits erasure on a documented legal request. ``RESTRICT`` would make that request fail
+        on a reference table nobody drafting it would think to look at, and the durable attribution
+        for an administrative change is §8.3's ``audit_logs`` row rather than this pointer.
+        """
+        with atomic(db_session):
+            approver = one(db_session.execute(text(INSERT_USER), {"email": "approver@example.org"}))
+            db_session.execute(
+                text(INSERT_LIMITATION_STATEMENT),
+                {
+                    "code": "PROBE",
+                    "version": 1,
+                    "text_en": "A probe statement with an approver.",
+                    "effective_from": None,
+                    "effective_to": None,
+                    "approved_by": approver,
+                },
+            )
+        with atomic(db_session):
+            db_session.execute(text("DELETE FROM users WHERE id = :id"), {"id": approver})
+
+        row = db_session.execute(
+            text("SELECT text_en, approved_by FROM limitation_statements WHERE code = 'PROBE'")
+        ).one()
+        assert row.approved_by is None
+        assert row.text_en == "A probe statement with an approver."
+
+
+class TestDataLossProtectionOnTheWayDown:
+    """The guards revisions 0002, 0003 and 0004 all have to pass on one rollback.
+
+    These get a database each, because a downgrade leaves nothing for the next test to use. They also
+    assert the property the guards depend on and which is easy to lose silently: ``migrations/env.py``
+    runs the whole migration in one transaction, so a revision that refuses part-way down rolls back
+    the drops the revisions above it already performed. A refusal that left the schema half-removed
+    would be worse than no refusal at all.
+    """
+
+    @pytest.fixture
+    def corpus_database(self, maintenance_url: URL) -> Iterator[str]:
+        with disposable_database(maintenance_url) as url:
+            yield url
+
+    @staticmethod
+    def _amend_the_corpus(url: str) -> None:
+        """A second version of ELA — wording revision 0004 did not write, and cannot recreate."""
+        engine = create_engine(url)
+        try:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(INSERT_LIMITATION_STATEMENT),
+                    {
+                        "code": "ELA",
+                        "version": 2,
+                        "text_en": "Amended wording an operator approved after the seed.",
+                        "effective_from": datetime(2027, 1, 1, tzinfo=UTC),
+                        "effective_to": None,
+                        "approved_by": None,
+                    },
+                )
+        finally:
+            engine.dispose()
+
+    @staticmethod
+    def _record_a_login(url: str) -> None:
+        """Real user data in one of revision 0003's tables, so its guard has something to protect."""
+        engine = create_engine(url)
+        try:
+            with engine.begin() as connection:
+                user = one(connection.execute(text(INSERT_USER), {"email": "roller@example.org"}))
+                connection.execute(text(INSERT_SESSION), honest_session_params({"user": user}))
+        finally:
+            engine.dispose()
+
+    def test_a_downgrade_refuses_while_amended_wording_exists(self, corpus_database: str) -> None:
+        """The seeded rows are recreatable; wording an operator approved is not.
+
+        The message has to name what would be lost, because "refusing to downgrade" without the row
+        that caused it sends an operator looking through the whole corpus.
+        """
+        self._amend_the_corpus(corpus_database)
+        with pytest.raises(RuntimeError, match=r"ELA v2"):
+            alembic_downgrade(corpus_database, "0003")
+
+        engine = create_engine(corpus_database)
+        try:
+            with engine.connect() as connection:
+                assert "limitation_statements" in inspect(connection).get_table_names()
+                assert _count(connection, "SELECT count(*) FROM limitation_statements") == 5
+                assert (
+                    one(connection.execute(text("SELECT version_num FROM alembic_version")))
+                    == HEAD_REVISION
+                ), "a refused downgrade still moved the revision pointer"
+        finally:
+            engine.dispose()
+
+    def test_a_refusal_further_down_rolls_the_whole_attempt_back(
+        self, corpus_database: str
+    ) -> None:
+        """Revision 0003's guard fires after 0004's drop has already run — and undoes it.
+
+        This is the path a real rollback takes: ``downgrade 0002`` from head steps through 0004, which
+        is allowed to drop a corpus holding nothing but seed rows, and then reaches 0003, which
+        refuses because a login was recorded. One transaction for the whole run is what makes the
+        answer "nothing changed" rather than "the disclaimer corpus is gone and the rollback failed
+        anyway".
+        """
+        self._record_a_login(corpus_database)
+        with pytest.raises(RuntimeError, match="user_sessions"):
+            alembic_downgrade(corpus_database, "0002")
+
+        engine = create_engine(corpus_database)
+        try:
+            with engine.connect() as connection:
+                tables = inspect(connection).get_table_names()
+                assert "limitation_statements" in tables, "0004's drop survived 0003's refusal"
+                assert "user_sessions" in tables
+                assert _count(connection, "SELECT count(*) FROM limitation_statements") == 4
+                assert _count(connection, "SELECT count(*) FROM user_sessions") == 1
+                assert (
+                    one(connection.execute(text("SELECT version_num FROM alembic_version")))
+                    == HEAD_REVISION
+                )
+        finally:
+            engine.dispose()
+
+    def test_the_escape_hatch_takes_both_revisions_with_it(self, corpus_database: str) -> None:
+        """``-x allow_data_loss=true`` means it, and only that flag means it.
+
+        With the flag, amended wording and a recorded login are both dropped on the way to 0002. The
+        tables revision 0001 created are untouched, and so is the user row: 0002 leaves seeded rows
+        alone under the same flag, because 0001 drops the tables holding them next.
+        """
+        self._amend_the_corpus(corpus_database)
+        self._record_a_login(corpus_database)
+        alembic_downgrade(corpus_database, "0002", x_args=("allow_data_loss=true",))
+
+        engine = create_engine(corpus_database)
+        try:
+            with engine.connect() as connection:
+                tables = inspect(connection).get_table_names()
+                assert "limitation_statements" not in tables
+                assert "user_sessions" not in tables
+                assert "users" in tables
+                assert "cases" in tables
+                assert _count(connection, "SELECT count(*) FROM users") == 1
+                assert (
+                    one(connection.execute(text("SELECT version_num FROM alembic_version")))
+                    == "0002"
+                )
+        finally:
+            engine.dispose()
+
+    def test_a_seeded_corpus_downgrades_cleanly_and_comes_back_identically(
+        self, corpus_database: str
+    ) -> None:
+        """A corpus nobody amended is reference data: reversible, and rebuilt byte for byte.
+
+        The re-upgrade runs in a fresh process, which is the execution a deployment performs and the
+        one that caught revision 0003's ``CREATE TYPE`` defect — see
+        :class:`TestRevisionIsReapplyable`.
+        """
+        engine = create_engine(corpus_database)
+        try:
+            with engine.connect() as connection:
+                before = connection.execute(
+                    text(
+                        "SELECT code, version, text_en, effective_from, effective_to, approved_by "
+                        "FROM limitation_statements ORDER BY code, version"
+                    )
+                ).all()
+
+            alembic_downgrade(corpus_database, "0003")
+            with engine.connect() as connection:
+                assert "limitation_statements" not in inspect(connection).get_table_names()
+                assert (
+                    one(connection.execute(text("SELECT version_num FROM alembic_version")))
+                    == "0003"
+                )
+
+            result = alembic_in_a_fresh_process(corpus_database, "upgrade", "head")
+            assert result.returncode == 0, (
+                f"re-applying revision 0004 in a fresh process failed:\n"
+                f"{result.stdout}\n{result.stderr}"
+            )
+            with engine.connect() as connection:
+                after = connection.execute(
+                    text(
+                        "SELECT code, version, text_en, effective_from, effective_to, approved_by "
+                        "FROM limitation_statements ORDER BY code, version"
+                    )
+                ).all()
+                assert (
+                    one(connection.execute(text("SELECT version_num FROM alembic_version")))
+                    == HEAD_REVISION
+                )
+        finally:
+            engine.dispose()
+        assert before == after, "the rebuilt corpus differs from the one that was dropped"
+
+
 class TestRevisionIsReapplyable:
     """The path a deployment actually takes, which an empty-database run cannot prove.
 
-    ``upgrade head`` from nothing applies three revisions in one process. A deployment applies one
+    ``upgrade head`` from nothing applies four revisions in one process. A deployment applies one
     revision to a server that already holds the previous one — a different execution, with different
     state. Revision 0003 shipped a defect only the second path could show: every enum column was a
     plain ``sa.Enum``, so ``create_table`` emitted ``CREATE TYPE`` for types revision 0001 had already
@@ -2381,7 +2926,7 @@ class TestRevisionIsReapplyable:
                     one(connection.execute(text("SELECT version_num FROM alembic_version")))
                     == PREVIOUS_REVISION
                 )
-                assert "user_sessions" not in inspect(connection).get_table_names()
+                assert "limitation_statements" not in inspect(connection).get_table_names()
 
             result = alembic_in_a_fresh_process(revision_database, "upgrade", "head")
 
@@ -2397,7 +2942,7 @@ class TestRevisionIsReapplyable:
                     one(connection.execute(text("SELECT version_num FROM alembic_version")))
                     == HEAD_REVISION
                 )
-                assert "user_sessions" in inspect(connection).get_table_names()
+                assert "limitation_statements" in inspect(connection).get_table_names()
             assert alembic_check(revision_database) is None, (
                 "the re-applied revision drifted from the models"
             )
@@ -2483,6 +3028,102 @@ class TestRevisionIsReapplyable:
         }
         assert found == expected, (
             f"the rebuilt enum types differ from the models: {found ^ expected}"
+        )
+
+
+#: §11's four roles, in the spelling ``infra/postgres/initdb/10-roles.sql`` creates them.
+BOOTSTRAP_ROLES: Final[tuple[str, ...]] = (
+    "tlx_migrator",
+    "tlx_app",
+    "tlx_worker",
+    "tlx_auditor",
+)
+
+#: Mirrors the bootstrap script's grants. Written out rather than executed from the file because that
+#: file is psql: ``\\gexec`` and ``\\getenv`` are client meta-commands and no driver will run them.
+#: :class:`TestRoleBootstrap` is what keeps the two from drifting apart.
+BOOTSTRAP_GRANTS: Final[tuple[str, ...]] = (
+    "GRANT USAGE ON SCHEMA public TO tlx_migrator, tlx_app, tlx_worker, tlx_auditor",
+    "GRANT CREATE ON SCHEMA public TO tlx_migrator",
+    "ALTER DEFAULT PRIVILEGES FOR ROLE {owner} IN SCHEMA public "
+    "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tlx_app, tlx_worker",
+    "ALTER DEFAULT PRIVILEGES FOR ROLE {owner} IN SCHEMA public "
+    "GRANT SELECT ON TABLES TO tlx_auditor",
+    "ALTER DEFAULT PRIVILEGES FOR ROLE {owner} IN SCHEMA public "
+    "GRANT USAGE, SELECT ON SEQUENCES TO tlx_app, tlx_worker",
+)
+
+
+class TestConnectionCredentials:
+    """A masked URL is not a connection string, and nothing here may build one.
+
+    ``str(URL)`` and ``URL.render_as_string()`` both replace the password with ``***``; only
+    ``render_as_string(hide_password=False)`` returns something a driver can authenticate with. A
+    masked URL does not fail loudly at the point of the mistake — it fails later as
+    ``password authentication failed for user "postgres"``, which reads as a problem with the server's
+    credentials and sends whoever is debugging to ``pg_hba.conf``. Against a server using trust
+    authentication it does not fail at all, so the defect travels to the first environment that
+    authenticates properly.
+
+    These tests are hermetic: they assert on URL construction, not on a connection, so they hold
+    whether or not the configured server asks for a password.
+    """
+
+    #: A URL with a password in it, so the assertions below mean something on a server that has none.
+    CREDENTIALLED: Final[URL] = make_url(
+        "postgresql+psycopg://postgres:ci-only-not-a-real-secret@localhost:5432/truthlens_ci"
+    )
+
+    def test_str_of_a_url_masks_the_password(self) -> None:
+        """The trap itself, pinned so the fix cannot be "simplified" back into it."""
+        assert "***" in str(self.CREDENTIALLED)
+        assert "***" in self.CREDENTIALLED.render_as_string()
+        assert self.CREDENTIALLED.render_as_string(hide_password=False) == (
+            "postgresql+psycopg://postgres:ci-only-not-a-real-secret@localhost:5432/truthlens_ci"
+        )
+
+    @pytest.mark.parametrize("role", BOOTSTRAP_ROLES)
+    def test_a_role_url_carries_the_real_password(self, role: str) -> None:
+        """The exact regression: ``_as_role`` returned ``str(...)`` and handed ``create_engine`` a URL
+        whose password was three asterisks."""
+        scratch = self.CREDENTIALLED.set(database="tlx_roles_probe")
+        addressed = _as_role(
+            scratch.render_as_string(hide_password=False), role, self.CREDENTIALLED
+        )
+        assert addressed.password == "ci-only-not-a-real-secret"
+        assert addressed.username == role
+        assert addressed.database == "tlx_roles_probe"
+
+    def test_a_role_url_recovers_the_password_from_a_masked_string(self) -> None:
+        """Even if a caller passes a masked URL, the role connection must still authenticate.
+
+        The password is taken from ``maintenance_url``, which is the configured URL and never masked,
+        so a masked input degrades to the same working connection instead of to ``***``.
+        """
+        addressed = _as_role(
+            str(self.CREDENTIALLED.set(database="tlx_roles_probe")), "tlx_app", self.CREDENTIALLED
+        )
+        assert addressed.password == "ci-only-not-a-real-secret"
+
+    def test_the_migration_runner_refuses_a_masked_url(self) -> None:
+        """The choke point every alembic helper passes through, so a masked URL fails here with an
+        explanation instead of a hundred lines later as an authentication error."""
+        with (
+            pytest.raises(ValueError, match="masked database URL"),
+            _settings_pointing_at(str(self.CREDENTIALLED)),
+        ):
+            pass  # pragma: no cover - the guard raises before the body runs
+
+    @pytest.mark.parametrize("fixture_name", ["scratch_database", "least_privilege_database"])
+    def test_the_database_fixtures_hand_out_connectable_urls(
+        self, request: pytest.FixtureRequest, fixture_name: str
+    ) -> None:
+        """Whatever a fixture yields must carry the configured password, or nothing downstream can
+        connect to it as anything other than a trust-authenticated role."""
+        url = request.getfixturevalue(fixture_name)
+        maintenance: URL = request.getfixturevalue("maintenance_url")
+        assert make_url(url).password == maintenance.password, (
+            f"{fixture_name} yielded a URL whose password is not the configured one"
         )
 
 
@@ -2603,29 +3244,6 @@ class TestRoleBootstrap:
         )
 
 
-#: §11's four roles, in the spelling ``infra/postgres/initdb/10-roles.sql`` creates them.
-BOOTSTRAP_ROLES: Final[tuple[str, ...]] = (
-    "tlx_migrator",
-    "tlx_app",
-    "tlx_worker",
-    "tlx_auditor",
-)
-
-#: Mirrors the bootstrap script's grants. Written out rather than executed from the file because that
-#: file is psql: ``\\gexec`` and ``\\getenv`` are client meta-commands and no driver will run them.
-#: :class:`TestRoleBootstrap` is what keeps the two from drifting apart.
-BOOTSTRAP_GRANTS: Final[tuple[str, ...]] = (
-    "GRANT USAGE ON SCHEMA public TO tlx_migrator, tlx_app, tlx_worker, tlx_auditor",
-    "GRANT CREATE ON SCHEMA public TO tlx_migrator",
-    "ALTER DEFAULT PRIVILEGES FOR ROLE {owner} IN SCHEMA public "
-    "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tlx_app, tlx_worker",
-    "ALTER DEFAULT PRIVILEGES FOR ROLE {owner} IN SCHEMA public "
-    "GRANT SELECT ON TABLES TO tlx_auditor",
-    "ALTER DEFAULT PRIVILEGES FOR ROLE {owner} IN SCHEMA public "
-    "GRANT USAGE, SELECT ON SEQUENCES TO tlx_app, tlx_worker",
-)
-
-
 @pytest.fixture
 def least_privilege_database(maintenance_url: URL) -> Iterator[str]:
     """A database migrated with §11's roles already present, and the roles removed afterwards.
@@ -2645,6 +3263,9 @@ def least_privilege_database(maintenance_url: URL) -> Iterator[str]:
     created: list[str] = []
     name = f"tlx_roles_{uuid4().hex[:12]}"
     scratch_url = maintenance_url.set(database=name)
+    # The bootstrap password, reused for the roles: `_as_role` hands it back when connecting as one of
+    # them, and a role created without a password cannot authenticate against a server that requires
+    # one. `or ""` keeps a trust-authenticated server (no password at all) working unchanged.
     password = maintenance_url.password or ""
     admin = create_engine(maintenance_url, isolation_level="AUTOCOMMIT")
     try:
@@ -2680,8 +3301,12 @@ def least_privilege_database(maintenance_url: URL) -> Iterator[str]:
         with scratch_admin.connect() as connection:
             for statement in BOOTSTRAP_GRANTS:
                 connection.execute(text(statement.format(owner=owner)))
-        alembic_upgrade(str(scratch_url))
-        yield str(scratch_url)
+        # `render_as_string(hide_password=False)`, matching `disposable_database`: `str(URL)` masks
+        # the password as `***`, which under trust authentication connects anyway and under scram
+        # fails as an authentication error against the bootstrap user. See TestConnectionCredentials.
+        url = scratch_url.render_as_string(hide_password=False)
+        alembic_upgrade(url)
+        yield url
     finally:
         scratch_admin.dispose()
         with admin.connect() as connection:
@@ -2847,7 +3472,17 @@ class TestLeastPrivilegeRoles:
                 f"{name} is append-only: tlx_app must read and insert but never update or delete, and "
                 f"tlx_auditor must only read; got {by_name[name]}"
             )
-        for name in ("cases", "evidence_items", "ai_messages", "user_sessions", "system_settings"):
+        for name in (
+            "cases",
+            "evidence_items",
+            "ai_messages",
+            "user_sessions",
+            "system_settings",
+            # §10 does not list the disclaimer corpus as append-only, so it takes the ordinary DML
+            # split — asserted because a table added by a later revision is exactly the kind that
+            # ends up with no grants at all when the default privileges are not what applied it.
+            "limitation_statements",
+        ):
             assert by_name[name][:4] == (True, True, True, True), (
                 f"{name} is not a ledger; tlx_app needs full DML, got {by_name[name]}"
             )
@@ -2863,14 +3498,19 @@ def _drop_roles(admin: Engine, created: list[str]) -> None:
             connection.execute(text(f'DROP ROLE IF EXISTS "{role}"'))
 
 
-def _as_role(url: str, role: str, maintenance_url: URL) -> str:
-    """The same database, addressed as one of §11's roles."""
-    return str(
-        make_url(url).set(
-            username=role,
-            password=maintenance_url.password or None,
-            drivername=maintenance_url.drivername,
-        )
+def _as_role(url: str, role: str, maintenance_url: URL) -> URL:
+    """The same database, addressed as one of §11's roles.
+
+    Returns a :class:`~sqlalchemy.engine.URL` rather than a string, and that is deliberate: ``str()``
+    of a URL masks the password as ``***``, so a string round-trip here would hand ``create_engine`` a
+    URL whose password is three asterisks. A ``URL`` object carries the real one. The password is
+    re-supplied from ``maintenance_url`` rather than trusted from ``url`` for the same reason — the
+    caller may well have been given a masked string by something upstream.
+    """
+    return make_url(url).set(
+        username=role,
+        password=maintenance_url.password or None,
+        drivername=maintenance_url.drivername,
     )
 
 

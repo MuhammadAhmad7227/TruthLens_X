@@ -17,7 +17,7 @@ So: add a model module, add its import here. There is no lazy-loading cleverness
 from __future__ import annotations
 
 from app.db.base import Base
-from app.models.analysis import AnalysisJob, AnalysisResult
+from app.models.analysis import AnalysisJob, AnalysisResult, LimitationStatement
 from app.models.assistant import AIConversation, AIMessage
 from app.models.audit import AuditLog
 from app.models.cases import DEFAULT_ORGANISATION_ID, Case, CaseMember, CaseNote, Notification
@@ -113,6 +113,7 @@ __all__ = [
     "IntegrityCheck",
     "IntegrityStatus",
     "JobStatus",
+    "LimitationStatement",
     "ModelStatus",
     "Notification",
     "Organisation",

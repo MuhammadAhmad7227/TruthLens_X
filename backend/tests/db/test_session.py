@@ -70,11 +70,11 @@ UNREACHABLE_URL: Final = "postgresql+psycopg://tlx_probe:not-a-real-password@127
 
 #: The revision at the tip of the graph, spelled out so a stale expectation fails loudly here rather
 #: than being quietly inherited from whatever the scripts happen to contain.
-HEAD_REVISION: Final = "0003"
+HEAD_REVISION: Final = "0004"
 
 #: The revision before it. A test that puts a database "one behind" has to name the revision it means:
 #: stamping an older one changes how many revisions are pending, which is the number under assertion.
-PREVIOUS_REVISION: Final = "0002"
+PREVIOUS_REVISION: Final = "0003"
 
 
 @pytest.fixture(autouse=True)
