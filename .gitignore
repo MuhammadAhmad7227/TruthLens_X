@@ -34,7 +34,11 @@ quarantine/
 *.001
 
 # ── Model weights (pinned via models.lock.json, fetched at build) ──
-models/
+# Anchored to the repository root on purpose. An unanchored `models/` also matches
+# `backend/app/models/`, which is the SQLAlchemy ORM package — the schema definitions the migrations
+# are generated from. Ignoring it would commit a migration with no models beside it, and `alembic
+# check` would then report drift nobody could fix from the repository.
+/models/
 ai_services/models/
 *.pt
 *.pth

@@ -25,8 +25,10 @@ from app.core.health import (
     ReadinessRegistry,
     build_default_registry,
     check_database,
+    check_migrations,
     check_redis,
 )
+from app.db.migrations import SchemaHeadStatus
 
 
 async def _result(name: str, status: str, *, required: bool = True) -> CheckResult:
@@ -197,6 +199,117 @@ class TestCheckDatabase:
         assert result.status == "unavailable"
         # The password must not appear in the detail, even though the driver may echo the URL.
         assert result.detail is not None
+
+
+#: Recognisable on purpose, so "did it leak?" has an unambiguous answer.
+CANARY_PASSWORD = "S3cret-Canary-Not-A-Real-Password"
+
+
+class TestCheckMigrations:
+    """§11 at the readiness boundary: a schema that does not match the code is not ready.
+
+    ``verify_schema_head`` itself is exercised against a live PostgreSQL in ``tests/db/``; what is
+    tested here is the probe around it — that every state becomes a status an operator can act on,
+    that the reason survives into the report, and that nothing raises out of ``/readyz``.
+    """
+
+    async def test_unset_database_url_reports_not_configured(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Driven through the environment, not by patching a ``get_settings`` symbol.
+
+        ``check_migrations`` hands no settings to ``verify_schema_head``, which resolves them through
+        ``app.db.migrations.get_settings`` — patching the copy in ``app.core.health`` would test
+        nothing and could pass while the probe read a different configuration entirely.
+        """
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        reset_settings()
+        try:
+            result = await check_migrations()
+        finally:
+            reset_settings()
+        assert result.status == "not_configured"
+        assert "DATABASE_URL" in (result.detail or "")
+
+    async def test_an_unreachable_database_reports_unavailable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A real connection attempt against a port nothing listens on, made off the event loop."""
+        with socket.socket() as probe_socket:
+            probe_socket.bind(("127.0.0.1", 0))
+            free_port = probe_socket.getsockname()[1]
+        monkeypatch.setenv("TLX_ENV", "test")
+        monkeypatch.setenv(
+            "DATABASE_URL",
+            f"postgresql+psycopg://tlx_probe:{CANARY_PASSWORD}@127.0.0.1:{free_port}/truthlens",
+        )
+        monkeypatch.setenv("DB_POOL_TIMEOUT_SECONDS", "1")
+        reset_settings()
+        try:
+            result = await check_migrations()
+        finally:
+            reset_settings()
+        assert result.status == "unavailable"
+        assert result.detail
+        # /readyz puts this detail in a response body. psycopg names the host and port and not the
+        # credentials, and that must stay true: a readiness probe is the one endpoint an unauthenticated
+        # caller is invited to poll.
+        assert CANARY_PASSWORD not in result.detail
+
+    @pytest.mark.parametrize(
+        ("state", "expected"),
+        [
+            ("current", "ok"),
+            ("not_configured", "not_configured"),
+            # Everything that is not `current` and not "nobody told us how to connect" blocks
+            # readiness. None of them is `degraded`: a schema that does not match the code cannot
+            # serve traffic partially, so "degraded" would understate it.
+            ("behind", "unavailable"),
+            ("diverged", "unavailable"),
+            ("not_migrated", "unavailable"),
+            ("multiple_heads", "unavailable"),
+            ("unreachable", "unavailable"),
+        ],
+    )
+    async def test_every_schema_state_maps_to_a_check_status(
+        self, monkeypatch: pytest.MonkeyPatch, state: str, expected: str
+    ) -> None:
+        def report(*_args: Any, **_kwargs: Any) -> SchemaHeadStatus:
+            return SchemaHeadStatus(state=state, detail=f"detail for {state}")  # type: ignore[arg-type]
+
+        monkeypatch.setattr("app.db.migrations.verify_schema_head", report)
+        result = await check_migrations()
+        assert result.status == expected
+        assert result.name == "migrations"
+
+    async def test_the_reason_reaches_the_operator(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The detail names the revisions and the command to run; dropping it would leave an
+        operator with a red light and no next action."""
+        detail = (
+            "schema is at 0001, head is 0002 (1 revision(s) to apply); run: alembic upgrade head"
+        )
+
+        def behind(*_args: Any, **_kwargs: Any) -> SchemaHeadStatus:
+            return SchemaHeadStatus(state="behind", detail=detail, applied="0001", head="0002")
+
+        monkeypatch.setattr("app.db.migrations.verify_schema_head", behind)
+        result = await check_migrations()
+        assert result.detail == detail
+
+    async def test_a_probe_that_raises_reports_instead_of_taking_readyz_down(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``verify_schema_head`` is written never to raise. This is what happens if that ever stops
+        being true: /readyz must still answer, because a readiness endpoint that crashes is worse
+        than one that reports unavailable."""
+
+        def explode(*_args: Any, **_kwargs: Any) -> SchemaHeadStatus:
+            raise RuntimeError("the script directory could not be read")
+
+        monkeypatch.setattr("app.db.migrations.verify_schema_head", explode)
+        result = await check_migrations()
+        assert result.status == "unavailable"
+        assert "RuntimeError" in (result.detail or "")
 
 
 class _FakeRedisServer:
@@ -399,11 +512,23 @@ class TestDefaultRegistry:
         assert registry._checks["database"][1] is True
         assert registry._checks["redis"][1] is True
 
-    def test_migrations_and_preflight_are_registered_but_optional(self) -> None:
-        """Registered now, reporting their real state, and flipped to required in the milestone that
-        delivers them. A check that only appears once it passes would hide that it was missing."""
+    def test_migrations_is_required_now_that_schema_verification_exists(self) -> None:
+        """Flipped in M2, when there became a schema to be at the head of.
+
+        §11: a server whose schema does not match its code must not serve traffic. Registering the
+        check as optional while claiming to verify the schema would be a probe that can only ever
+        agree with you.
+        """
         registry = build_default_registry()
-        assert registry._checks["migrations"][1] is False
+        assert registry._checks["migrations"][1] is True
+
+    def test_preflight_stays_optional_until_the_milestone_that_delivers_it(self) -> None:
+        """Registered, reporting its real state, and flipped in M19/M20 (ADR-0006 §5.4).
+
+        A check that only appears once it starts passing would hide the fact that it was missing
+        before, so it is registered now and says plainly that it does not run yet.
+        """
+        registry = build_default_registry()
         assert registry._checks["preflight"][1] is False
 
     async def test_pending_checks_report_honestly(
@@ -414,17 +539,27 @@ class TestDefaultRegistry:
         registry = build_default_registry()
         report = await registry.evaluate()
         by_name = {c.name: c for c in report.checks}
-        assert "M2" in (by_name["migrations"].detail or "")
         assert by_name["preflight"].status == "not_configured"
+        # With no DATABASE_URL the schema probe cannot ask anything, and says which variable is
+        # missing rather than reporting a vague failure to reach a database.
         assert by_name["migrations"].status == "not_configured"
+        assert "DATABASE_URL" in (by_name["migrations"].detail or "")
 
     async def test_default_registry_is_ready_when_dependencies_answer(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """End-to-end: real registry, real Redis socket, database stubbed out."""
+        """End-to-end: real registry, real Redis socket, both PostgreSQL probes stubbed.
+
+        This test is about aggregation — does the registry combine results and answer ``ready`` — so
+        the two checks that need a server are replaced. Their own behaviour is tested separately, in
+        ``TestCheckMigrations`` here and against a live PostgreSQL in ``tests/db/``.
+        """
 
         async def _db_ok() -> CheckResult:
             return CheckResult(name="database", status="ok", detail="stubbed for this test")
+
+        async def _migrations_ok() -> CheckResult:
+            return CheckResult(name="migrations", status="ok", detail="stubbed for this test")
 
         with _FakeRedisServer() as server:
             reset_settings()
@@ -433,9 +568,11 @@ class TestDefaultRegistry:
             monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@127.0.0.1:1/db")
             registry = build_default_registry()
             registry._checks["database"] = (_db_ok, True)
+            registry._checks["migrations"] = (_migrations_ok, True)
             report = await registry.evaluate()
         reset_settings()
         by_name = {c.name: c for c in report.checks}
         assert by_name["redis"].status == "ok"
-        # migrations/preflight are optional and report not_configured, so readiness still holds.
+        # preflight is the only optional check left, and it reports not_configured without blocking.
+        assert by_name["preflight"].required is False
         assert report.is_ready

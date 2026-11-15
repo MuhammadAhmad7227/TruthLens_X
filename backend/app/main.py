@@ -96,11 +96,40 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             ),
         )
 
+    # Build the engine and session factory now rather than on the first request, so a deployment
+    # with a broken DATABASE_URL says so in its startup log instead of in its first 500. Failure is
+    # logged and startup continues: /readyz reports the database as unavailable, and refusing to
+    # boot would turn a dependency blip into a restart loop — the same reasoning that keeps liveness
+    # and readiness separate.
+    try:
+        from app.db.session import init_database  # noqa: PLC0415
+
+        init_database(settings)
+    except ImportError:
+        logger.warning(
+            "database.driver_missing",
+            detail="the 'db' extra is not installed; /readyz will report the database unavailable",
+        )
+    except Exception as exc:
+        logger.warning(
+            "database.init_failed",
+            error=type(exc).__name__,
+            detail=str(exc),
+        )
+
     logger.info("application.started", version=__version__)
     try:
         yield
     finally:
         logger.info("application.stopping", version=__version__)
+        try:
+            from app.db.session import dispose_database  # noqa: PLC0415
+
+            # Returns pooled connections instead of leaving them for the server to time out, which
+            # matters behind PgBouncer: an idle connection here is a slot nobody else can use.
+            dispose_database()
+        except ImportError:
+            pass
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
