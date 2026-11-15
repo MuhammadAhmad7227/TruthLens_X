@@ -1,0 +1,151 @@
+name: compose-config
+
+# ════════════════════════════════════════════════════════════════════════════════════════════
+# ADR-0005's configuration-validation gate — the "no daemon needed" half, and nothing else.
+#
+# ADR-0005 (single-host Docker Compose) commits the project to two distinct CI activities:
+#
+#     "`docker compose config` validation in CI (no daemon needed) plus a full E2E stack on merge."
+#
+# docs/IMPLEMENTATION_ROADMAP.md repeats the first one as a mitigation ("keep compose files simple,
+# add a `compose config` lint job") and docs/SYSTEM_ARCHITECTURE.md repeats it as the way compose
+# changes get checked ("validated by CI (`docker compose config` + a full E2E stack) rather than
+# locally"). Neither existed until this file, and infra/compose/docker-compose.yml said so itself:
+#
+#     "NOT VALIDATED: no Docker daemon was available where this file was written, so
+#      `docker compose config` has never been run against it. Treat first bring-up as a supervised
+#      event."
+#
+# Compose is the one part of this repository where a syntax error is invisible until someone tries
+# to bring the stack up on an operator's host — and it is also where the ratified deployment rules
+# live (only nginx publishes ports, FORWARDED_ALLOW_IPS pinned to the tlxnet subnet, Redis pinned to
+# 7.2 by ADR-0022). A file that cannot be parsed cannot honour any of them. So the cheapest possible
+# check runs on every push and pull request.
+#
+# WHY THIS NEEDS NO DAEMON, NO GPU, NO IMAGES AND NO RUNNING SERVICES
+#   `docker compose config` is a client-side operation. It reads the Compose files, resolves YAML
+#   merge keys (`<<: *backend-env`) and `x-` extension fields, performs ${VAR} interpolation, and
+#   either prints the resulting configuration or — with --quiet — simply checks it. It never contacts
+#   the daemon, pulls an image, builds a container, starts a service, or queries hardware.
+#
+#   That last point is why a GPU override could be validated here on an ordinary runner: whether a
+#   `deploy.resources.reservations.devices` block is well-formed is a question about text, and
+#   "is a GPU actually present" is a different question that this gate deliberately does not ask.
+#
+# WHAT THIS GATE IS NOT
+#   It does not prove the stack works. Services coming up healthy, migrations applying, nginx
+#   reaching the API — that is the E2E stack, ADR-0005's second half, and it is intentionally out of
+#   scope here (M21). A green run means "these files parse, merge and interpolate into a
+#   configuration Compose accepts", which is a real and useful guarantee and no more than that.
+# ════════════════════════════════════════════════════════════════════════════════════════════
+
+on: [push, pull_request]
+
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    strategy:
+      # Not fail-fast: once overrides exist, one broken combination must not hide the state of the
+      # others — knowing that the base stack still validates while the GPU override does not is the
+      # whole point of running them separately.
+      fail-fast: false
+      matrix:
+        include:
+          # ── The only Compose configuration that exists in this repository today ────────────────
+          - stack: base stack (nginx, api, frontend, postgres, redis)
+            files: infra/compose/docker-compose.yml
+
+          # ── DEVELOPMENT / TEST / GPU OVERRIDES: NOT PRESENT, SO NOT VALIDATED ──────────────────
+          #
+          # This repository contains exactly one Compose file. The dev, test and GPU overrides are
+          # still outstanding M1 work; nothing here invents them, and no matrix entry may reference
+          # a file that does not exist — the "Referenced Compose files must exist" step below fails
+          # the build if one does, rather than letting a typo silently reduce this gate to nothing.
+          #
+          # When an override lands, add it as BOTH files in order, so Compose merges the override
+          # onto the base exactly as `docker compose up` would:
+          #
+          #   - stack: development override
+          #     files: infra/compose/docker-compose.yml infra/compose/docker-compose.dev.yml
+          #   - stack: test override
+          #     files: infra/compose/docker-compose.yml infra/compose/docker-compose.test.yml
+          #   - stack: gpu override
+          #     files: infra/compose/docker-compose.yml infra/compose/docker-compose.gpu.yml
+          #
+          # A GPU override needs no GPU to validate, for the reason given in the header comment.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Diagnostic, and a deliberate statement of the gate's premise: `docker compose version`
+      # talks to the CLI only. If this step succeeds and a later one fails, the failure is about the
+      # Compose files, not about a runner that happens to lack Compose. Compose v2 ships with the
+      # Docker CLI preinstalled on ubuntu-latest, so no setup action is needed — and adding one
+      # would widen this workflow beyond configuration validation.
+      - name: Docker Compose version (client-side; contacts no daemon)
+        run: docker compose version
+
+      # A renamed or deleted Compose file must break this job loudly. Without this step, a stale
+      # path in the matrix would make `docker compose config` fail with a confusing "no such file"
+      # — or, in a future glob-based design, validate nothing at all and report success.
+      - name: Referenced Compose files must exist
+        env:
+          COMPOSE_FILES: ${{ matrix.files }}
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in $COMPOSE_FILES; do
+            if [ -f "$f" ]; then
+              echo "found: $f"
+            else
+              echo "::error::$f is referenced by this workflow but does not exist in the repository."
+              echo "Update the matrix in .github/workflows/compose-config.yml, or add the file."
+              fail=1
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
+          echo "OK: every referenced Compose file exists."
+
+      # ── WHY THE TWO CREDENTIALS ARE SUPPLIED HERE RATHER THAN READ FROM .env.example ───────────
+      #
+      # docker-compose.yml uses ${VAR:?message} for POSTGRES_PASSWORD and REDIS_PASSWORD, which makes
+      # them MANDATORY: unset or empty, `config` exits non-zero with "required variable is missing a
+      # value". That strictness is correct and must not be relaxed — a stack that rendered with an
+      # empty database password would be far worse than one that refuses to render, and the `:?` form
+      # is what makes the failure happen at configuration time instead of at first connection.
+      #
+      # So the validator has to supply something, and it supplies obvious non-secrets, because
+      # `config` only interpolates: these values are never used to connect to anything.
+      #
+      # They are written as literals rather than generated at run time so a reader can see exactly
+      # what is substituted, and they use only lowercase letters and hyphens so that no secret
+      # scanner can mistake them for a credential. That is not paranoia: this repository has already
+      # had a push rejected by GitHub push protection over a test fixture that merely looked real,
+      # and the honest fix then — as now — is to make the value obviously synthetic.
+      #
+      # DELIBERATELY NOT `--env-file .env.example`, and the gap that leaves visible:
+      #   .env.example documents POSTGRES_PASSWORD with an EMPTY value and does not mention
+      #   REDIS_PASSWORD at all, so it cannot satisfy this Compose file today. Pointing the validator
+      #   at it would fail the build over a documentation gap rather than a Compose defect, which
+      #   would teach people to ignore this job. The gap itself is real and worth closing — M1's exit
+      #   criteria require .env.example to list every variable the code reads — but it belongs in its
+      #   own change, not smuggled into the commit that adds a CI workflow.
+      - name: Validate — ${{ matrix.stack }}
+        env:
+          COMPOSE_FILES: ${{ matrix.files }}
+          POSTGRES_PASSWORD: ci-only-not-a-real-secret
+          REDIS_PASSWORD: ci-only-not-a-real-secret
+        run: |
+          set -euo pipefail
+          args=()
+          for f in $COMPOSE_FILES; do
+            args+=(-f "$f")
+          done
+          # --quiet validates and exits non-zero on any error without printing the interpolated
+          # configuration. Printing it would put the substituted credentials above — throwaway
+          # though they are — into a public log, and would train reviewers to skim past secrets.
+          # On failure, Compose still writes the actual error to stderr, so nothing is hidden.
+          docker compose "${args[@]}" config --quiet
+          echo "OK: ${COMPOSE_FILES} parse, merge and interpolate into a valid configuration."
