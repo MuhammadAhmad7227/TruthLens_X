@@ -20,7 +20,7 @@ Pydantic settings, so a migration cannot run against a database the API does not
 
 ```bash
 cd backend
-export DATABASE_URL='postgresql+psycopg://tlx_app:<password>@postgres:5432/truthlens'
+export DATABASE_URL='postgresql+psycopg://tlx_migrator:<password>@postgres:5432/truthlens'
 
 alembic upgrade head      # apply everything pending
 alembic current           # what this database believes it is
@@ -35,8 +35,9 @@ does not exist.
 
 ### Running as the migration role, not the application role
 
-Least privilege (§11, and the grants in `infra/postgres/initdb/`): the application role `tlx_app`
-cannot `CREATE`, and must not be able to. Migrations run as `tlx_migrator`, which owns the schema and
+Least privilege (§11): the four roles are created by `infra/postgres/initdb/10-roles.sql`, which
+`infra/compose/docker-compose.yml` mounts read-only at `/docker-entrypoint-initdb.d`. The application
+role `tlx_app` cannot `CREATE`, and must not be able to. Migrations run as `tlx_migrator`, which owns the schema and
 holds DDL rights — and which is *revoked* from `UPDATE`/`DELETE` on the two append-only ledgers, so
 even the role that builds the schema cannot rewrite custody history.
 
@@ -45,6 +46,14 @@ even the role that builds the schema cannot rewrite custody history.
 DATABASE_URL='postgresql+psycopg://tlx_migrator:<password>@postgres:5432/truthlens' \
     alembic upgrade head
 ```
+
+The bootstrap script arranges table access with `ALTER DEFAULT PRIVILEGES`, because it runs before the
+schema exists: `GRANT … ON ALL TABLES` at that moment would grant nothing at all. Default privileges
+apply to tables created *afterwards*, and each revision's own `REVOKE` then narrows them — so the
+ordering is grant-by-default first, narrow afterwards, and the narrowing is enforced by the schema
+rather than remembered by an operator. `tests/db/test_migrations.py::TestLeastPrivilegeRoles` runs
+that sequence against a real server and asserts the resulting privilege matrix, including M2's exit
+criterion that the application role cannot delete an audit row.
 
 A deployment runs this as a separate step, before the API starts, and the API then reports its own
 schema state through `/readyz` (`app.db.migrations.verify_schema_head`). A server whose schema is
@@ -62,8 +71,10 @@ So every revision in this directory follows the same three rules.
 
 **1. A downgrade refuses by default.** Before removing anything, it asks whether anything depends on
 what it is about to remove, and raises a `RuntimeError` naming the dependents if so. Revision `0001`
-checks every table for rows; revision `0002` checks `user_roles`, `role_permissions` and `cases`. The
-message says what has to be removed first, because "cannot downgrade" without a reason is not an
+checks every table for rows; revision `0002` checks `user_roles`, `role_permissions` and `cases`;
+revision `0003` checks the seven tables it creates — which is what makes a rollback of the assistant
+record, the session history or the integrity sweeps refuse rather than quietly drop them. The message
+says what has to be removed first, because "cannot downgrade" without a reason is not an
 operator-facing message.
 
 **2. Data loss is opt-in, explicit, and spelled the same way everywhere.**
@@ -83,6 +94,14 @@ types, functions, sequences and triggers are what a table-by-table drop forgets.
 put it there. `tests/db/test_migrations.py::TestDowngradeLifecycle` asserts the empty result
 explicitly — zero enums, zero functions, zero sequences, zero triggers — and then rebuilds from
 nothing and re-runs `alembic check`.
+
+A revision drops only the types it created. `0003` introduces `chat_role` and `ai_message_status` and
+drops exactly those; it *borrows* `integrity_status` and `evidence_type` from `0001` for
+`integrity_checks` and `retention_policies`, and dropping a borrowed type would take a column in
+`evidence_items` or `physical_objects` with it. Both sets are written out as constants in the revision
+(`NEW_ENUM_LABELS`, `BORROWED_ENUM_LABELS`) rather than derived from the models, because a revision is
+a snapshot: deriving it from live code would let a later change to an enum alter what an old migration
+does.
 
 What a downgrade is *for*: recovering a failed deployment on a database that has not yet taken
 traffic, and local development. What it is not for: undoing a release on a database holding evidence.
@@ -145,6 +164,17 @@ naming because each has already happened here:
   hand-written `op.alter_column`.** Autogenerate will not see it.
 * **Reserved words.** `CREATE FUNCTION tlx_array_to_text(values text[])` is a syntax error, because
   `values` is reserved. The parameter is named `elements`.
+* **A borrowed enum type must not be created again.** `op.create_table` builds its table with
+  `checkfirst=False`, so a plain `sa.Enum(..., name=…)` column emits `CREATE TYPE` unconditionally —
+  for a type another revision already created. The first `upgrade head` from an empty database hides
+  this, because the earlier revision created the type in the same process and SQLAlchemy's per-process
+  memo then suppresses the duplicate. Applying the revision to a database that stopped at the previous
+  one — what every deployment does — has no memo, and the run dies with
+  `type "integrity_status" already exists`. Revision `0003` therefore routes every enum column through
+  a `_enum()` helper returning `postgresql.ENUM(..., create_type=False)`, and creates the two types it
+  owns explicitly with `checkfirst=True`. **An in-process test cannot catch a regression here**:
+  `tests/db/conftest.py::alembic_in_a_fresh_process` exists because the memo makes the bug invisible to
+  one, and `TestRevisionIsReapplyable` uses it.
 
 Conventions the rest of this directory follows:
 
@@ -175,6 +205,31 @@ Recorded here because a reader comparing the schema to §3.1 will otherwise find
 | `uuid-ossp` for time-ordered ids | A PL/pgSQL `uuid_generate_v7()` in revision `0001` | PostgreSQL 16 has no built-in v7. The recipe uses `clock_timestamp()` and the server CSPRNG. |
 | `roles`/`permissions` absent from the design | Present, plus `role_permissions` | `SECURITY_ARCHITECTURE` §4.2 requires named capabilities stored as data. The design document's `capabilities`/`rbac_matrix` tables are these. |
 | `evidence`, `evidence_hashes`, `evidence_artifacts`, `model_registry` | `evidence_items`, `physical_objects`, `derivatives`, `ai_models` | The design document's own §4/§3.5 names, which supersede the earlier milestone vocabulary. |
+| §8.2: `CHECK (role <> 'assistant' OR cardinality(citations) > 0 OR unsupported = true)` | `jsonb_array_length(citations) > 0`, plus a sibling `jsonb_typeof(citations) = 'array'` CHECK | PostgreSQL has no `cardinality(jsonb)` — verified against 16.2, where the documented spelling raises `function cardinality(jsonb) does not exist`, so the constraint as written cannot be created at all. `jsonb_array_length` is the array-length equivalent. The sibling guard exists because `jsonb_array_length` raises an *internal* error on a non-array: both reject the row, only one names the rule that rejected it. |
+| §8.2's `ai_messages` column list | Adds `prompt_template_version` | `AI_ARCHITECTURE.md` §5 and §6 require it on every message, and §11.1 builds prompts from a *versioned* template — an answer cannot be reproduced without knowing which template produced it. §8.2's table predates that requirement. |
+| §9's enum list | Adds a type named `ai_message_status` | §8.2 specifies the three outcomes (`succeeded`, `failed`, `refused`) in prose without naming a type. §9's rule for a *closed* vocabulary is a native enum, and the outcomes of an assistant turn are closed. |
+| §8.2: provenance required for a `succeeded` turn | The CHECK is scoped to `role = 'assistant'` as well | As written it makes `succeeded` unwritable for a user turn or a tool result, neither of which ever reached a model — leaving "failed" and "refused" as the only statuses available for a question somebody simply asked. Found by a live-database test, not by reading. |
+| §3.2: `refresh_token_hash text` | `char(64)` + a lowercase-hex CHECK | A bearer credential's digest has one shape. Fixed width means a truncated digest cannot be stored, and the alphabet check means an uppercase one cannot — which would otherwise present as "session expired" for a valid session. |
+| §8.4's `feature_flags` column list | `reason` is `NOT NULL` and non-blank | A flag here states a licence position (ADR-0001's copyleft gates), a rollout decision or a legal constraint. "It was on" with nothing beside it is not answerable six months later when somebody asks who accepted the obligation. `NOT NULL` alone is satisfied by three spaces. |
+| §8.4's `retention_policies` | CHECKs `audit_is_never_deleted` and `deletion_names_an_approver`; no `UNIQUE (scope, evidence_type)` | The two CHECKs encode ADR-0020's decisions — the audit trail is never deleted, and a hard delete names a second approver — where an administrator cannot reach around them. The unique constraint is *absent* on purpose: a scope-wide policy and a narrower type-specific one may legitimately coexist, and which one wins is a resolution rule belonging to the retention service in M19. Forbidding the overlap now would forbid the override before anybody designed it. |
+| §8.4's `system_settings.schema` | The column is `schema`; the model attribute is `value_schema` | `SystemSetting.schema` in Python reads as the *database* schema. The same device `audit_logs` uses to keep a column named `metadata` behind `event_metadata`: the design names the column, and the attribute name is the code's problem. |
+| §10: `integrity_checks` monthly-partitioned, cold after 24 months | Unpartitioned, with the append-only `REVOKE`s applied | Partitioning is roadmap task 2.5 and needs a retention policy to partition *by*; converting an existing table to a partitioned one means rewriting it, so doing it before there is data is the cheap moment and doing it badly is not recoverable. The append-only half of §10 is in place now: `0003` revokes `UPDATE`/`DELETE`/`TRUNCATE` from `tlx_app`, `tlx_worker` and `tlx_auditor` exactly as `0001` does for the two ledgers. |
+| §10's append-only set | `ai_messages` is **not** in it | §10 names three tables: `audit_logs`, `custody_events`, `integrity_checks`. A transcript is immutable by construction — no `updated_at`, no `deleted_at`, and AI-08's regenerate *appends* — but revoking `DELETE` from it would be a policy decision dressed as schema, and that policy is M17's to make. |
+
+### What revision `0003` does not do
+
+Recorded because a reader following the roadmap will look for these:
+
+* **`limitation_statements` (§5.3) does not exist yet.** `analysis_results.limitations_code` is the
+  `NOT NULL` reference to it, and §13 lists it among the seeds. Roadmap tasks 2.3 and 2.6 name it; it
+  is the one table in the M2 list still missing, and M2's exit criterion (c) — "every seeded limitation
+  statement resolves by `(code, version)`" — cannot be met until it and its seeds exist.
+* **No partitioning** (§10, roadmap 2.5) — see the deviations table above.
+* **No seeds beyond `0002`'s.** §13 also lists a pipeline catalogue and example plate formats; neither
+  table exists yet, so there is nothing to seed.
+* **No grants management beyond the bootstrap.** `infra/postgres/initdb/10-roles.sql` creates the roles
+  and arranges default privileges; per-role credentials and any narrower grant policy are a deployment
+  concern and the remaining half of roadmap task 2.4.
 
 `role_permissions` is seeded **empty** on purpose. Deciding which role holds which capability *is*
 the authorization design, and that is milestone M3. An empty matrix denies everything, so a missing

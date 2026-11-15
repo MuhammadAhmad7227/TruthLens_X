@@ -15,16 +15,19 @@ none rather than quietly passing.
 
 from __future__ import annotations
 
+import importlib.util
+import re
 import time
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, Final, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from psycopg.errors import ForeignKeyViolation
 from sqlalchemy import Enum as SAEnum, ForeignKeyConstraint, create_engine, inspect, text
-from sqlalchemy.engine import URL, Engine
+from sqlalchemy.engine import URL, Engine, make_url
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
 
@@ -34,6 +37,7 @@ from tests.db.conftest import (
     BACKEND_ROOT,
     alembic_check,
     alembic_downgrade,
+    alembic_in_a_fresh_process,
     alembic_stamp,
     alembic_upgrade,
     disposable_database,
@@ -44,7 +48,17 @@ from tests.db.conftest import (
 pytestmark = pytest.mark.integration
 
 #: The revision the schema should be at after ``upgrade head``.
-HEAD_REVISION: Final[str] = "0002"
+HEAD_REVISION: Final[str] = "0003"
+
+#: The revision 0003 replaced. Named separately because the re-application test needs the pair: the
+#: path a deployment takes is "already at the previous revision, apply the next one", not "build
+#: everything from nothing", and those two executions are not the same.
+PREVIOUS_REVISION: Final[str] = "0002"
+
+#: The revision that seeds the reference data. Named because the idempotence test re-runs exactly that
+#: one and no further: upgrading to head from a stamped-behind state would re-apply 0003 to a database
+#: that already holds its tables.
+SEED_REVISION: Final[str] = "0002"
 
 #: §4.3's fourteen event types and SECURITY_ARCHITECTURE §4.1's six roles, spelled out here rather
 #: than imported from the model: the point is to catch a model that has drifted from the document,
@@ -647,16 +661,25 @@ class TestSeedData:
                 text("SELECT id, code FROM permissions ORDER BY code")
             ).all()
 
+        # Stamp back past the seed and re-apply *only* the seed revision. Upgrading to head instead
+        # would re-run 0003 against a database that already has its tables, and the failure would be
+        # about a relation that exists rather than about whether seeding can be repeated.
         alembic_stamp(scratch_database, "0001")
-        alembic_upgrade(scratch_database)
+        try:
+            alembic_upgrade(scratch_database, SEED_REVISION)
 
-        with scratch_engine.connect() as connection:
-            after = connection.execute(text("SELECT id, code FROM permissions ORDER BY code")).all()
-            version = one(connection.execute(text("SELECT version_num FROM alembic_version")))
-            organisations = one(connection.execute(text("SELECT count(*) FROM organisations")))
-            roles = one(connection.execute(text("SELECT count(*) FROM roles")))
+            with scratch_engine.connect() as connection:
+                after = connection.execute(
+                    text("SELECT id, code FROM permissions ORDER BY code")
+                ).all()
+                version = one(connection.execute(text("SELECT version_num FROM alembic_version")))
+                organisations = one(connection.execute(text("SELECT count(*) FROM organisations")))
+                roles = one(connection.execute(text("SELECT count(*) FROM roles")))
+        finally:
+            # Restore the version table only: nothing but it was changed.
+            alembic_stamp(scratch_database, HEAD_REVISION)
         assert after == before, "re-seeding changed the reference rows"
-        assert version == HEAD_REVISION
+        assert version == SEED_REVISION
         assert (organisations, roles) == (1, 6)
 
 
@@ -1483,6 +1506,1389 @@ class TestDowngradeLifecycle:
             )
         finally:
             engine.dispose()
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# Revision 0003: sessions, the assistant record, integrity sweeps, platform administration
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+
+INSERT_SESSION: Final[str] = """
+INSERT INTO user_sessions (user_id, refresh_token_hash, family_id, issued_at, expires_at, ip,
+                           user_agent, revoked_at)
+VALUES (:user_id, :refresh_token_hash, :family_id, :issued_at, :expires_at, :ip, :user_agent,
+        :revoked_at)
+RETURNING id
+"""
+
+INSERT_CONVERSATION: Final[str] = """
+INSERT INTO ai_conversations (case_id, created_by, title, provider, model_id, status)
+VALUES (:case_id, :created_by, :title, :provider, :model_id, :status)
+RETURNING id
+"""
+
+INSERT_MESSAGE: Final[str] = """
+INSERT INTO ai_messages (conversation_id, role, content, citations, unsupported, retrieval_context,
+                         prompt_tokens, completion_tokens, model_name, model_version, temperature,
+                         top_p, seed, guardrail_version, prompt_template_version, latency_ms, status)
+VALUES (:conversation_id, :role, :content, CAST(:citations AS jsonb), :unsupported,
+        CAST(:retrieval_context AS jsonb), :prompt_tokens, :completion_tokens, :model_name,
+        :model_version, :temperature, :top_p, :seed, :guardrail_version, :prompt_template_version,
+        :latency_ms, :status)
+RETURNING id
+"""
+
+#: The same insert with every optional column omitted, so what comes back is what the *database*
+#: supplied rather than what a test chose.
+INSERT_BARE_MESSAGE: Final[str] = """
+INSERT INTO ai_messages (conversation_id, role, content, guardrail_version,
+                         prompt_template_version, status)
+VALUES (:conversation_id, :role, :content, :guardrail_version, :prompt_template_version, :status)
+RETURNING id, citations, unsupported, retrieval_context
+"""
+
+INSERT_INTEGRITY_CHECK: Final[str] = """
+INSERT INTO integrity_checks (physical_object_id, checked_at, expected_sha256, actual_sha256,
+                              result, job_id)
+VALUES (:physical_object_id, :checked_at, :expected_sha256, :actual_sha256, :result, :job_id)
+RETURNING id
+"""
+
+INSERT_SYSTEM_SETTING: Final[str] = """
+INSERT INTO system_settings (key, updated_by)
+VALUES (:key, :updated_by)
+RETURNING id, value, "schema", previous_value
+"""
+
+INSERT_FEATURE_FLAG: Final[str] = """
+INSERT INTO feature_flags (key, reason, updated_by)
+VALUES (:key, :reason, :updated_by)
+RETURNING id, enabled
+"""
+
+INSERT_RETENTION_POLICY: Final[str] = """
+INSERT INTO retention_policies (scope, evidence_type, keep_until_event, keep_duration, action,
+                                approved_by)
+VALUES (:scope, :evidence_type, :keep_until_event, CAST(:keep_duration AS interval), :action,
+        :approved_by)
+RETURNING id, action
+"""
+
+INSERT_PHYSICAL_OBJECT_FOR_SWEEP: Final[str] = """
+INSERT INTO physical_objects (sha256, size_bytes, storage_backend, storage_path, detected_mime,
+                              encryption, written_at)
+VALUES (:sha256, 1024, 'filesystem', :storage_path, 'image/jpeg', 'none', now())
+RETURNING id
+"""
+
+
+def honest_session_params(rows: dict[str, Any], **overrides: Any) -> dict[str, Any]:
+    """A session row that satisfies every constraint, with individual fields overridable."""
+    issued = datetime.now(UTC)
+    params: dict[str, Any] = {
+        "user_id": rows["user"],
+        "refresh_token_hash": "d" * 64,
+        "family_id": uuid4(),
+        "issued_at": issued,
+        "expires_at": issued + timedelta(days=30),
+        "ip": "203.0.113.7",
+        "user_agent": "Mozilla/5.0 (X11; Linux x86_64)",
+        "revoked_at": None,
+    }
+    params.update(overrides)
+    return params
+
+
+def honest_message_params(rows: dict[str, Any], **overrides: Any) -> dict[str, Any]:
+    """An assistant turn that cites what it used, so a single field can be corrupted at a time."""
+    params: dict[str, Any] = {
+        "conversation_id": rows["conversation"],
+        "role": "assistant",
+        "content": "Two objects in this case share a capture timestamp.",
+        "citations": f'[{{"evidence_id": "{rows["evidence"]}", "kind": "metadata"}}]',
+        "unsupported": False,
+        "retrieval_context": "[]",
+        "prompt_tokens": 412,
+        "completion_tokens": 87,
+        "model_name": "local-llm",
+        "model_version": "8b-instruct-1.2.0",
+        "temperature": "0.2",
+        "top_p": "0.9",
+        "seed": 20260101,
+        "guardrail_version": "guardrails-2.1.0",
+        "prompt_template_version": "assistant-v1.4",
+        "latency_ms": 1830,
+        "status": "succeeded",
+    }
+    params.update(overrides)
+    return params
+
+
+def honest_check_params(rows: dict[str, Any], **overrides: Any) -> dict[str, Any]:
+    """A sweep that read the bytes and found them unchanged."""
+    params: dict[str, Any] = {
+        "physical_object_id": rows["physical_object"],
+        "checked_at": datetime.now(UTC),
+        "expected_sha256": "a" * 64,
+        "actual_sha256": "a" * 64,
+        "result": "verified",
+        "job_id": None,
+    }
+    params.update(overrides)
+    return params
+
+
+def retention_params(**overrides: Any) -> dict[str, Any]:
+    """A retention policy that deletes nothing, with individual fields overridable."""
+    params: dict[str, Any] = {
+        "scope": "original",
+        "evidence_type": None,
+        "keep_until_event": None,
+        "keep_duration": None,
+        "action": "retain",
+        "approved_by": None,
+    }
+    params.update(overrides)
+    return params
+
+
+@pytest.fixture
+def assistant_rows(db_session: Session, rows: dict[str, Any]) -> dict[str, Any]:
+    """``rows`` plus a conversation, so the assistant tests have a thread to write into."""
+    with atomic(db_session):
+        conversation = one(
+            db_session.execute(
+                text(INSERT_CONVERSATION),
+                {
+                    "case_id": rows["case"],
+                    "created_by": rows["user"],
+                    "title": "What does the metadata say?",
+                    "provider": "local",
+                    "model_id": None,
+                    "status": "active",
+                },
+            )
+        )
+    return {**rows, "conversation": conversation}
+
+
+class TestSessionRules:
+    """§3.2's refresh-token table, against the server."""
+
+    @pytest.mark.parametrize("token_hash", ["D" * 64, "z" * 64, "d" * 63])
+    def test_a_token_hash_outside_the_alphabet_is_refused(
+        self, db_session: Session, rows: dict[str, Any], token_hash: str
+    ) -> None:
+        """Uppercase, a non-hex character and a truncated digest are all refused by name.
+
+        The width is already fixed by ``char(64)``; the alphabet is not, and a digest stored uppercase
+        would never match the same token hashed again at presentation — which surfaces as "session
+        expired" for a user whose session is valid.
+        """
+        expect_refusal(
+            db_session,
+            INSERT_SESSION,
+            honest_session_params(rows, refresh_token_hash=token_hash),
+            "ck_user_sessions_refresh_token_hash_is_lowercase_hex",
+        )
+
+    def test_the_same_token_cannot_be_presented_by_two_sessions(
+        self, db_session: Session, rows: dict[str, Any]
+    ) -> None:
+        """Rotation presents a token and expects exactly one row back.
+
+        Two rows would mean two live sessions for one credential, and reuse detection — which decides
+        whether to revoke a whole family — could not tell which one was replayed.
+        """
+        params = honest_session_params(rows)
+        with atomic(db_session):
+            db_session.execute(text(INSERT_SESSION), params)
+        with pytest.raises(IntegrityError) as excinfo, atomic(db_session):
+            db_session.execute(
+                text(INSERT_SESSION), {**params, "family_id": uuid4(), "ip": "198.51.100.4"}
+            )
+        assert _refused_by(excinfo.value) == "uq_user_sessions_refresh_token_hash"
+
+    @pytest.mark.parametrize(
+        ("field", "constraint"),
+        [
+            ("expires_at", "ck_user_sessions_expiry_after_issue"),
+            ("revoked_at", "ck_user_sessions_revocation_after_issue"),
+        ],
+    )
+    def test_a_session_cannot_end_before_it_began(
+        self, db_session: Session, rows: dict[str, Any], field: str, constraint: str
+    ) -> None:
+        expect_refusal(
+            db_session,
+            INSERT_SESSION,
+            honest_session_params(
+                rows,
+                issued_at=datetime(2026, 3, 1, 12, tzinfo=UTC),
+                **{field: datetime(2026, 3, 1, 11, tzinfo=UTC)},
+            ),
+            constraint,
+        )
+
+    def test_a_revoked_session_may_still_be_expired(
+        self, db_session: Session, rows: dict[str, Any]
+    ) -> None:
+        """The constraint that must NOT exist, checked by writing the row it would have refused.
+
+        Revoking an already-expired session is normal housekeeping — reuse detection sweeps families
+        whose tokens have lapsed — so a ``revoked_at <= expires_at`` rule would block it. Asserting
+        that the row is accepted is the only way to prove the rule is absent rather than unseen.
+        """
+        issued = datetime(2026, 3, 1, 12, tzinfo=UTC)
+        with atomic(db_session):
+            identifier = one(
+                db_session.execute(
+                    text(INSERT_SESSION),
+                    honest_session_params(
+                        rows,
+                        issued_at=issued,
+                        expires_at=issued + timedelta(days=30),
+                        revoked_at=issued + timedelta(days=45),
+                    ),
+                )
+            )
+        assert isinstance(identifier, UUID)
+
+    def test_a_user_cannot_be_deleted_while_a_session_records_them(
+        self, db_session: Session
+    ) -> None:
+        """§3.2's ``RESTRICT``, exercised: the login history outlives the account it belongs to.
+
+        A deletion that took the sessions with it would remove the evidence that an account
+        authenticated from a given address with a given client — the first thing an incident review
+        asks for.
+        """
+        # A user of its own rather than `rows["user"]`: that one created a case, so deleting them is
+        # refused by `fk_cases_created_by_users` first and the session constraint is never reached.
+        # Which foreign key answers is not a detail — the point is that the session record survives.
+        with atomic(db_session):
+            holder = one(
+                db_session.execute(text(INSERT_USER), {"email": "session-holder@example.org"})
+            )
+            db_session.execute(text(INSERT_SESSION), honest_session_params({"user": holder}))
+        with pytest.raises(IntegrityError) as excinfo, atomic(db_session):
+            db_session.execute(text("DELETE FROM users WHERE id = :user_id"), {"user_id": holder})
+        assert _refused_by(excinfo.value) == "fk_user_sessions_user_id_users"
+
+    def test_session_identifiers_are_time_ordered(
+        self, db_session: Session, rows: dict[str, Any]
+    ) -> None:
+        """ADR-0009, observed on the server rather than asserted about a Python default.
+
+        ``uuid_generate_v7()`` is a function the migration installs, so "the column defaults to v7"
+        says nothing about whether it works. The gap between the two inserts matters: v7 orders by
+        millisecond, and two identifiers from the same one are ordered by their random tail.
+        """
+        with atomic(db_session):
+            first = one(db_session.execute(text(INSERT_SESSION), honest_session_params(rows)))
+        time.sleep(0.01)
+        with atomic(db_session):
+            second = one(
+                db_session.execute(
+                    text(INSERT_SESSION), honest_session_params(rows, refresh_token_hash="e" * 64)
+                )
+            )
+        assert first < second, f"{first} is not ordered before {second}"
+
+
+class TestAssistantRecordRules:
+    """§8.2 and AI-02, against the server: the honesty constraint has to actually refuse a row."""
+
+    def test_an_assistant_claim_with_no_citation_and_no_declaration_is_refused(
+        self, db_session: Session, assistant_rows: dict[str, Any]
+    ) -> None:
+        """The single most important constraint revision 0003 adds.
+
+        The guardrail prompt asks the model to cite; a CHECK makes it unable to persist an uncited
+        claim. Without it the platform's central promise — every assistant statement traceable to case
+        data, or explicitly marked as not traceable — rests on a model obeying an instruction.
+        """
+        expect_refusal(
+            db_session,
+            INSERT_MESSAGE,
+            honest_message_params(assistant_rows, citations="[]", unsupported=False),
+            "ck_ai_messages_assistant_cites_or_declares_unsupported",
+        )
+
+    def test_an_assistant_turn_may_say_the_case_does_not_support_it(
+        self, db_session: Session, assistant_rows: dict[str, Any]
+    ) -> None:
+        """``unsupported = true`` is the honest exit, and it has to be reachable.
+
+        A constraint that refused every uncited turn would push the model towards inventing a citation,
+        which is worse than admitting there is none.
+        """
+        with atomic(db_session):
+            identifier = one(
+                db_session.execute(
+                    text(INSERT_MESSAGE),
+                    honest_message_params(
+                        assistant_rows,
+                        citations="[]",
+                        unsupported=True,
+                        content="The case data does not establish who sent this message.",
+                    ),
+                )
+            )
+        assert isinstance(identifier, UUID)
+
+    @pytest.mark.parametrize("role", ["user", "system", "tool"])
+    def test_the_citation_rule_binds_assistant_turns_only(
+        self, db_session: Session, assistant_rows: dict[str, Any], role: str
+    ) -> None:
+        """A user's own words are not a claim the platform makes, and a tool result is not prose.
+
+        Applying AI-02 to every role would refuse an ordinary question, which is how a well-intentioned
+        constraint ends up disabled.
+        """
+        with atomic(db_session):
+            identifier = one(
+                db_session.execute(
+                    text(INSERT_MESSAGE),
+                    honest_message_params(
+                        assistant_rows,
+                        role=role,
+                        citations="[]",
+                        unsupported=False,
+                        content="What does the capture metadata show?",
+                    ),
+                )
+            )
+        assert isinstance(identifier, UUID)
+
+    def test_citations_that_are_not_an_array_are_refused_by_their_own_constraint(
+        self, db_session: Session, assistant_rows: dict[str, Any]
+    ) -> None:
+        """``jsonb_array_length`` raises an internal error on a non-array.
+
+        The sibling ``jsonb_typeof`` CHECK exists so the row is refused with a *name* attached. Both
+        reject ``{}``; only one tells an operator which rule they broke. Asserted with a non-assistant
+        role so the citation rule cannot fire first and take the credit.
+        """
+        expect_refusal(
+            db_session,
+            INSERT_MESSAGE,
+            honest_message_params(assistant_rows, role="user", citations="{}"),
+            "ck_ai_messages_citations_is_a_json_array",
+        )
+
+    def test_the_documented_cardinality_spelling_cannot_be_what_refuses_the_row(
+        self, db_session: Session
+    ) -> None:
+        """§8.2 writes ``cardinality(citations)``; PostgreSQL has no such function for jsonb.
+
+        Probed rather than assumed, because the deviation is only defensible if the documented spelling
+        genuinely does not work: the migration would fail outright, not merely differ. The second half
+        is that the substitute does.
+        """
+        with pytest.raises(DBAPIError) as excinfo, atomic(db_session):
+            db_session.execute(text("SELECT cardinality(CAST('[]' AS jsonb))"))
+        assert "cardinality" in str(excinfo.value.orig).lower()
+        with atomic(db_session):
+            length = one(db_session.execute(text("SELECT jsonb_array_length(CAST('[]' AS jsonb))")))
+        assert length == 0
+
+    def test_a_succeeded_turn_without_a_model_is_refused(
+        self, db_session: Session, assistant_rows: dict[str, Any]
+    ) -> None:
+        """AI-04 makes model and version mandatory for every interaction, and a turn that succeeded by
+        definition reached a model."""
+        expect_refusal(
+            db_session,
+            INSERT_MESSAGE,
+            honest_message_params(assistant_rows, model_name=None),
+            "ck_ai_messages_a_succeeded_turn_names_its_model",
+        )
+
+    def test_a_refused_turn_needs_no_model(
+        self, db_session: Session, assistant_rows: dict[str, Any]
+    ) -> None:
+        """A guardrail refusal never reached a model, so demanding one would force the platform to
+        record a model it did not use — a fabricated provenance entry."""
+        with atomic(db_session):
+            identifier = one(
+                db_session.execute(
+                    text(INSERT_MESSAGE),
+                    honest_message_params(
+                        assistant_rows,
+                        citations="[]",
+                        unsupported=True,
+                        status="refused",
+                        model_name=None,
+                        model_version=None,
+                        content="Refused by the guardrail.",
+                    ),
+                )
+            )
+        assert isinstance(identifier, UUID)
+
+    @pytest.mark.parametrize("top_p", ["1.5", "-0.1"])
+    def test_top_p_outside_the_probability_range_is_refused(
+        self, db_session: Session, assistant_rows: dict[str, Any], top_p: str
+    ) -> None:
+        """Not an invented bound: ``top_p`` is a cumulative probability by definition."""
+        expect_refusal(
+            db_session,
+            INSERT_MESSAGE,
+            honest_message_params(assistant_rows, top_p=top_p),
+            "ck_ai_messages_top_p_is_a_probability",
+        )
+
+    def test_a_negative_temperature_is_refused(
+        self, db_session: Session, assistant_rows: dict[str, Any]
+    ) -> None:
+        expect_refusal(
+            db_session,
+            INSERT_MESSAGE,
+            honest_message_params(assistant_rows, temperature="-0.1"),
+            "ck_ai_messages_temperature_not_negative",
+        )
+
+    def test_a_large_temperature_is_accepted(
+        self, db_session: Session, assistant_rows: dict[str, Any]
+    ) -> None:
+        """The upper bound is deliberately absent, and this is what proves it.
+
+        Providers disagree about the ceiling, so a scale invented here would silently refuse a
+        legitimate provider setting — and the failure would look like a bug in the assistant rather
+        than a bound nobody ratified.
+
+        A separate test from the refusal above rather than its second half: ``expect_refusal`` rolls
+        back the session's transaction, which is where the fixture's rows live, so a test that refuses
+        first and inserts afterwards would fail on a missing conversation. Splitting them removes the
+        ordering hazard instead of relying on which fixture happened to commit.
+        """
+        with atomic(db_session):
+            identifier = one(
+                db_session.execute(
+                    text(INSERT_MESSAGE), honest_message_params(assistant_rows, temperature="4.0")
+                )
+            )
+        assert isinstance(identifier, UUID)
+
+    @pytest.mark.parametrize(
+        ("column", "constraint"),
+        [
+            ("prompt_tokens", "ck_ai_messages_prompt_tokens_not_negative"),
+            ("completion_tokens", "ck_ai_messages_completion_tokens_not_negative"),
+            ("latency_ms", "ck_ai_messages_latency_not_negative"),
+            ("seed", "ck_ai_messages_seed_not_negative"),
+        ],
+    )
+    def test_a_measurement_cannot_be_negative(
+        self, db_session: Session, assistant_rows: dict[str, Any], column: str, constraint: str
+    ) -> None:
+        """AI-08's regenerate and AI-04's token accounting both read these as facts about a turn."""
+        expect_refusal(
+            db_session,
+            INSERT_MESSAGE,
+            honest_message_params(assistant_rows, **{column: -1}),
+            constraint,
+        )
+
+    def test_the_defaults_record_an_empty_retrieval_not_an_unknown_one(
+        self, db_session: Session, assistant_rows: dict[str, Any]
+    ) -> None:
+        """``[]`` means "nothing was retrieved"; NULL would mean "we did not record it".
+
+        The difference is what AI-01 turns on: an assistant answer with no retrieval context is a
+        statement made without the case, and that has to be visible in the row rather than inferred
+        from a column nobody filled in.
+        """
+        with atomic(db_session):
+            row = db_session.execute(
+                text(INSERT_BARE_MESSAGE),
+                {
+                    "conversation_id": assistant_rows["conversation"],
+                    "role": "user",
+                    "content": "Summarise this case.",
+                    "guardrail_version": "guardrails-2.1.0",
+                    "prompt_template_version": "assistant-v1.4",
+                    "status": "succeeded",
+                },
+            ).one()
+        assert row.citations == []
+        assert row.retrieval_context == []
+        assert row.unsupported is False
+
+    def test_the_chat_vocabulary_is_the_one_the_documents_spell(
+        self, scratch_engine: Engine
+    ) -> None:
+        """§9's ``chat_role`` and §8.2's three outcomes, read back from the server.
+
+        A label the type does not carry makes every comparison match nothing, and the failure surfaces
+        as an empty transcript during a review.
+        """
+        with scratch_engine.connect() as connection:
+            roles = scalars(
+                connection.execute(text("SELECT unnest(enum_range(NULL::chat_role))::text"))
+            )
+            statuses = scalars(
+                connection.execute(text("SELECT unnest(enum_range(NULL::ai_message_status))::text"))
+            )
+        assert tuple(roles) == ("system", "user", "assistant", "tool")
+        assert tuple(statuses) == ("succeeded", "failed", "refused")
+
+    def test_a_role_outside_the_vocabulary_is_refused(
+        self, db_session: Session, assistant_rows: dict[str, Any]
+    ) -> None:
+        """The native type doing the work a CHECK constraint would otherwise have to do."""
+        with pytest.raises(DBAPIError) as excinfo, atomic(db_session):
+            db_session.execute(
+                text(INSERT_MESSAGE), honest_message_params(assistant_rows, role="analyst")
+            )
+        assert "invalid input value for enum chat_role" in str(excinfo.value)
+
+    def test_message_identifiers_are_time_ordered(
+        self, db_session: Session, assistant_rows: dict[str, Any]
+    ) -> None:
+        """A transcript is read in order; v7 makes that the primary key's job rather than a sort on
+        ``created_at`` in every query."""
+        with atomic(db_session):
+            first = one(
+                db_session.execute(
+                    text(INSERT_MESSAGE), honest_message_params(assistant_rows, role="user")
+                )
+            )
+        time.sleep(0.01)
+        with atomic(db_session):
+            second = one(
+                db_session.execute(
+                    text(INSERT_MESSAGE), honest_message_params(assistant_rows, role="assistant")
+                )
+            )
+        assert first < second, f"{first} is not ordered before {second}"
+
+
+class TestSweepRules:
+    """§8.4's ``integrity_checks`` and EVID-07, against the server."""
+
+    def test_a_sweep_cannot_report_verified_while_holding_two_different_digests(
+        self, db_session: Session, rows: dict[str, Any]
+    ) -> None:
+        """The row that would be worth forging, refused.
+
+        "Verified" beside two unequal digests contradicts itself, and that contradiction is exactly
+        what a tampered sweep record looks like.
+        """
+        expect_refusal(
+            db_session,
+            INSERT_INTEGRITY_CHECK,
+            honest_check_params(rows, actual_sha256="b" * 64),
+            "ck_integrity_checks_verified_means_the_digests_agree",
+        )
+
+    def test_a_sweep_cannot_report_a_mismatch_that_did_not_happen(
+        self, db_session: Session, rows: dict[str, Any]
+    ) -> None:
+        """The mirror image, and not a harmless one: EVID-07 makes a mismatch a critical integrity
+        exception that an administrator acts on, so a false positive has a cost too."""
+        expect_refusal(
+            db_session,
+            INSERT_INTEGRITY_CHECK,
+            honest_check_params(rows, result="mismatch"),
+            "ck_integrity_checks_mismatch_means_the_digests_differ",
+        )
+
+    def test_unverified_is_not_an_outcome_a_sweep_may_report(
+        self, db_session: Session, rows: dict[str, Any]
+    ) -> None:
+        """``integrity_status`` is shared with ``evidence_items``, where ``unverified`` means "never
+        checked". A row here *is* a check that ran, so the shared enum needs this constraint beside it
+        — otherwise the table can record that nothing happened."""
+        expect_refusal(
+            db_session,
+            INSERT_INTEGRITY_CHECK,
+            # With the digest present, so `a_digest_was_read_unless_missing` cannot fire first: two
+            # violated constraints would make the assertion about which one answered arbitrary.
+            honest_check_params(rows, result="unverified"),
+            "ck_integrity_checks_result_is_an_outcome",
+        )
+
+    def test_a_sweep_may_report_that_the_bytes_were_unreadable(
+        self, db_session: Session, rows: dict[str, Any]
+    ) -> None:
+        """``missing`` is the one result with no digest, and it has to be writable: EVID-07 exists to
+        raise an exception when an original cannot be read."""
+        with atomic(db_session):
+            identifier = one(
+                db_session.execute(
+                    text(INSERT_INTEGRITY_CHECK),
+                    honest_check_params(rows, result="missing", actual_sha256=None),
+                )
+            )
+        assert isinstance(identifier, UUID)
+
+    def test_every_other_result_requires_the_digest_that_was_read(
+        self, db_session: Session, rows: dict[str, Any]
+    ) -> None:
+        """Without this, NULL in ``actual_sha256`` is ambiguous between "could not read it" and "did
+        not record it" — and only the first is a finding."""
+        expect_refusal(
+            db_session,
+            INSERT_INTEGRITY_CHECK,
+            honest_check_params(rows, result="mismatch", actual_sha256=None),
+            "ck_integrity_checks_a_digest_was_read_unless_missing",
+        )
+
+    @pytest.mark.parametrize("column", ["expected_sha256", "actual_sha256"])
+    def test_a_malformed_digest_is_refused(
+        self, db_session: Session, rows: dict[str, Any], column: str
+    ) -> None:
+        """The expected digest is copied from ``physical_objects.sha256`` rather than joined to it, so
+        it carries the same alphabet check. An uppercase digest compares unequal to the same digest
+        computed again, and presents as an integrity mismatch instead of a formatting bug."""
+        expect_refusal(
+            db_session,
+            INSERT_INTEGRITY_CHECK,
+            honest_check_params(rows, **{column: "A" * 64}),
+            f"ck_integrity_checks_{column}_is_lowercase_hex",
+        )
+
+    def test_a_sweep_of_an_object_that_does_not_exist_is_refused(
+        self, db_session: Session, rows: dict[str, Any]
+    ) -> None:
+        with pytest.raises(IntegrityError) as excinfo, atomic(db_session):
+            db_session.execute(
+                text(INSERT_INTEGRITY_CHECK), honest_check_params(rows, physical_object_id=uuid4())
+            )
+        assert (
+            _refused_by(excinfo.value) == "fk_integrity_checks_physical_object_id_physical_objects"
+        )
+
+    def test_sweep_identifiers_are_time_ordered(
+        self, db_session: Session, rows: dict[str, Any]
+    ) -> None:
+        """§10 rolls these to cold storage after 24 months, which is a key-range operation."""
+        with atomic(db_session):
+            first = one(db_session.execute(text(INSERT_INTEGRITY_CHECK), honest_check_params(rows)))
+        time.sleep(0.01)
+        with atomic(db_session):
+            second = one(
+                db_session.execute(
+                    text(INSERT_INTEGRITY_CHECK),
+                    honest_check_params(rows, actual_sha256="b" * 64, result="mismatch"),
+                )
+            )
+        assert first < second
+
+
+class TestPlatformAdministrationRules:
+    """§8.4's settings, flags and retention policies: every default is the closed one."""
+
+    def test_a_flag_created_with_no_values_enables_nothing(
+        self, db_session: Session, rows: dict[str, Any]
+    ) -> None:
+        """Fail closed, observed on the server.
+
+        A migration or an admin call that inserts a key and a reason gets ``false``, in the same
+        direction as ``ai_provider_settings.is_enabled`` — a row that switches something on has to say
+        so explicitly.
+        """
+        with atomic(db_session):
+            row = db_session.execute(
+                text(INSERT_FEATURE_FLAG),
+                {
+                    "key": "assistant.local_inference",
+                    "reason": "ADR-0007: local-first by default",
+                    "updated_by": rows["user"],
+                },
+            ).one()
+        assert row.enabled is False
+
+    @pytest.mark.parametrize("table_name", ["feature_flags", "system_settings"])
+    def test_a_blank_key_is_refused(
+        self, db_session: Session, rows: dict[str, Any], table_name: str
+    ) -> None:
+        """NOT NULL is satisfied by whitespace, which is why the ``btrim`` CHECK exists."""
+        statement = (
+            INSERT_FEATURE_FLAG
+            if table_name == "feature_flags"
+            else "INSERT INTO system_settings (key, updated_by) VALUES (:key, :updated_by)"
+        )
+        expect_refusal(
+            db_session,
+            statement,
+            {"key": "   ", "reason": "   ", "updated_by": rows["user"]},
+            f"ck_{table_name}_key_is_not_blank",
+        )
+
+    def test_a_blank_flag_reason_is_refused(
+        self, db_session: Session, rows: dict[str, Any]
+    ) -> None:
+        """A flag here states a licence position (ADR-0001's copyleft gates), a rollout decision or a
+        legal constraint. "It was on" with nothing beside it is not answerable six months later when
+        somebody asks who accepted that obligation."""
+        expect_refusal(
+            db_session,
+            INSERT_FEATURE_FLAG,
+            {"key": "assistant.local_inference", "reason": "   ", "updated_by": rows["user"]},
+            "ck_feature_flags_reason_is_not_blank",
+        )
+
+    def test_no_policy_can_delete_the_audit_trail(self, db_session: Session) -> None:
+        """ADR-0020's second decision, enforced where an administrator cannot reach around it.
+
+        §12 says custody and audit history is never deleted in v1 — archival only. Without this CHECK
+        the most destructive setting in the admin UI would be one dropdown away.
+        """
+        expect_refusal(
+            db_session,
+            INSERT_RETENTION_POLICY,
+            retention_params(scope="custody_audit", action="delete"),
+            "ck_retention_policies_audit_is_never_deleted",
+        )
+
+    def test_the_audit_trail_may_still_be_archived(self, db_session: Session) -> None:
+        """§12's "archival only" is a permission as much as a prohibition: cold storage after 730 days
+        is the documented lifecycle, so ``archive`` has to be writable."""
+        with atomic(db_session):
+            row = db_session.execute(
+                text(INSERT_RETENTION_POLICY),
+                retention_params(
+                    scope="custody_audit",
+                    keep_until_event="case_closed",
+                    keep_duration="730 days",
+                    action="archive",
+                ),
+            ).one()
+        assert row.action == "archive"
+
+    def test_deleting_an_original_without_an_approver_is_refused(self, db_session: Session) -> None:
+        """ADR-0020's fourth decision: a hard delete needs an administrator, a justification, a second
+        approver and a permanent audit record. This is the approver half."""
+        expect_refusal(
+            db_session,
+            INSERT_RETENTION_POLICY,
+            retention_params(scope="original", evidence_type="image", action="delete"),
+            "ck_retention_policies_deletion_names_an_approver",
+        )
+
+    def test_deleting_an_original_is_permitted_once_somebody_approves_it(
+        self, db_session: Session, rows: dict[str, Any]
+    ) -> None:
+        """The constraint has to be satisfiable, or it is a prohibition on the action rather than a
+        requirement about how it is authorised.
+
+        Kept apart from the refusal above for the transaction reason noted in
+        :meth:`TestAssistantRecordRules.test_a_large_temperature_is_accepted`.
+        """
+        with atomic(db_session):
+            row = db_session.execute(
+                text(INSERT_RETENTION_POLICY),
+                retention_params(
+                    scope="original",
+                    evidence_type="image",
+                    action="delete",
+                    approved_by=rows["user"],
+                ),
+            ).one()
+        assert row.action == "delete"
+
+    def test_purging_a_derivative_needs_no_approver(self, db_session: Session) -> None:
+        """§12 makes derivative purging automated and regenerable — a constraint demanding an approver
+        there would contradict the rule it was written to serve."""
+        with atomic(db_session):
+            row = db_session.execute(
+                text(INSERT_RETENTION_POLICY),
+                retention_params(
+                    scope="derivative",
+                    evidence_type="image",
+                    keep_duration="90 days",
+                    action="purge",
+                ),
+            ).one()
+        assert row.action == "purge"
+
+    @pytest.mark.parametrize(
+        ("overrides", "constraint"),
+        [
+            ({"scope": "everything"}, "ck_retention_policies_scope_is_a_known_data_class"),
+            ({"action": "shred"}, "ck_retention_policies_action_is_a_known_action"),
+        ],
+    )
+    def test_an_unknown_scope_or_action_is_refused(
+        self, db_session: Session, overrides: dict[str, str], constraint: str
+    ) -> None:
+        """A scope nobody defined would match no deletion rule at all, silently retaining everything
+        it was meant to govern — so these vocabularies are constrained even though they stay text."""
+        expect_refusal(
+            db_session, INSERT_RETENTION_POLICY, retention_params(**overrides), constraint
+        )
+
+    def test_a_new_setting_declares_an_empty_value_and_an_empty_shape(
+        self, db_session: Session, rows: dict[str, Any]
+    ) -> None:
+        """``value`` and ``schema`` are both NOT NULL with ``{}`` defaults, so a setting exists as a
+        declared-but-empty entry rather than as a NULL nobody can validate against.
+
+        ``previous_value`` stays NULL, and that is a fact rather than a gap: it means this is the value
+        the setting was created with.
+        """
+        with atomic(db_session):
+            row = db_session.execute(
+                text(INSERT_SYSTEM_SETTING),
+                {"key": "retention.statutory_days", "updated_by": rows["user"]},
+            ).one()
+        assert row.value == {}
+        # By position: the column is named `schema`, which is not a usable attribute name on a Row.
+        assert row[2] == {}
+        assert row.previous_value is None
+
+    def test_two_settings_cannot_share_a_key(
+        self, db_session: Session, rows: dict[str, Any]
+    ) -> None:
+        params = {"key": "retention.statutory_days", "updated_by": rows["user"]}
+        with atomic(db_session):
+            db_session.execute(text(INSERT_SYSTEM_SETTING), params)
+        with pytest.raises(IntegrityError) as excinfo, atomic(db_session):
+            db_session.execute(text(INSERT_SYSTEM_SETTING), params)
+        assert _refused_by(excinfo.value) == "uq_system_settings_key"
+
+
+class TestRevisionIsReapplyable:
+    """The path a deployment actually takes, which an empty-database run cannot prove.
+
+    ``upgrade head`` from nothing applies three revisions in one process. A deployment applies one
+    revision to a server that already holds the previous one — a different execution, with different
+    state. Revision 0003 shipped a defect only the second path could show: every enum column was a
+    plain ``sa.Enum``, so ``create_table`` emitted ``CREATE TYPE`` for types revision 0001 had already
+    created. Inside one process SQLAlchemy's memo suppressed the duplicate and the run succeeded; in a
+    fresh process against a database at 0002 it died with ``type "integrity_status" already exists``.
+    """
+
+    @pytest.fixture
+    def revision_database(self, maintenance_url: URL) -> Iterator[str]:
+        """A database of its own: this one is taken apart and put back together."""
+        with disposable_database(maintenance_url) as url:
+            yield url
+
+    def test_a_database_at_the_previous_revision_can_be_upgraded_by_a_fresh_process(
+        self, revision_database: str
+    ) -> None:
+        """Downgrade in one process, re-apply in another, exactly as a rollback-and-retry would."""
+        engine = create_engine(revision_database)
+        try:
+            alembic_downgrade(
+                revision_database, PREVIOUS_REVISION, x_args=("allow_data_loss=true",)
+            )
+            with engine.connect() as connection:
+                assert (
+                    one(connection.execute(text("SELECT version_num FROM alembic_version")))
+                    == PREVIOUS_REVISION
+                )
+                assert "user_sessions" not in inspect(connection).get_table_names()
+
+            result = alembic_in_a_fresh_process(revision_database, "upgrade", "head")
+
+            assert result.returncode == 0, (
+                f"`alembic upgrade head` from {PREVIOUS_REVISION} failed in a fresh process:\n"
+                f"{result.stdout}\n{result.stderr}"
+            )
+            assert "already exists" not in result.stderr, (
+                "the revision created a type or table that was already there:\n" + result.stderr
+            )
+            with engine.connect() as connection:
+                assert (
+                    one(connection.execute(text("SELECT version_num FROM alembic_version")))
+                    == HEAD_REVISION
+                )
+                assert "user_sessions" in inspect(connection).get_table_names()
+            assert alembic_check(revision_database) is None, (
+                "the re-applied revision drifted from the models"
+            )
+        finally:
+            engine.dispose()
+
+    def test_the_revision_references_enum_types_instead_of_creating_them(self) -> None:
+        """The structural half, so the fix cannot be undone by a plausible-looking edit.
+
+        ``create_type=False`` is what stops a column from emitting ``CREATE TYPE``; the types the
+        revision owns are created once, explicitly, with ``checkfirst``. Asserting both halves names
+        the mechanism rather than only its symptom.
+        """
+        module = _load_revision("0003_sessions_assistant_integrity_platform")
+        assert set(module.NEW_ENUM_LABELS) == {"chat_role", "ai_message_status"}, (
+            "the types this revision introduces changed; update the migration and this test together"
+        )
+        for name in (*module.NEW_ENUM_LABELS, *module.BORROWED_ENUM_LABELS):
+            assert module._enum(name).create_type is False, (
+                f"_enum({name!r}) would emit CREATE TYPE, so a second run of this revision would fail "
+                "with DuplicateObject on any database already past revision 0001"
+            )
+
+    def test_the_types_it_borrows_are_the_ones_revision_0001_created(self) -> None:
+        """Borrowed types must not be dropped on the way down.
+
+        ``integrity_status`` and ``evidence_type`` belong to ``evidence_items`` and
+        ``physical_objects``, both created by 0001, so 0003's downgrade leaves them alone — asserted
+        here as a property of the two constants, and on the server by the teardown test below.
+        """
+        module = _load_revision("0003_sessions_assistant_integrity_platform")
+        previous = _load_revision("0001_initial_schema")
+        assert set(module.BORROWED_ENUM_LABELS) <= set(previous.ENUM_TYPES), (
+            "0003 borrows a type 0001 never created"
+        )
+        assert not set(module.NEW_ENUM_LABELS) & set(previous.ENUM_TYPES), (
+            "0003 claims to introduce a type that already existed"
+        )
+
+    def test_a_full_teardown_removes_the_types_this_revision_added(
+        self, revision_database: str
+    ) -> None:
+        """Down to ``base`` and back, with the new enum types accounted for on both legs.
+
+        A type left behind is what makes the next ``upgrade head`` fail with "already exists", and the
+        error says nothing about which migration left it — so the teardown is asserted to remove them
+        and the rebuild to restore exactly the set the models declare.
+        """
+        engine = create_engine(revision_database)
+        try:
+            alembic_downgrade(revision_database, "base", x_args=("allow_data_loss=true",))
+            with engine.connect() as connection:
+                assert (
+                    _count(
+                        connection,
+                        """
+                        SELECT count(*) FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
+                        WHERE n.nspname = 'public' AND t.typtype = 'e'
+                    """,
+                    )
+                    == 0
+                ), "enum types survived the teardown"
+            alembic_upgrade(revision_database)
+            with engine.connect() as connection:
+                found = set(
+                    scalars(
+                        connection.execute(
+                            text("""
+                                SELECT t.typname FROM pg_type t
+                                JOIN pg_namespace n ON n.oid = t.typnamespace
+                                WHERE n.nspname = 'public' AND t.typtype = 'e'
+                            """)
+                        )
+                    )
+                )
+        finally:
+            engine.dispose()
+        expected = {
+            column.type.name
+            for name in metadata.tables
+            for column in metadata.tables[name].columns
+            if isinstance(column.type, SAEnum) and column.type.name
+        }
+        assert found == expected, (
+            f"the rebuilt enum types differ from the models: {found ^ expected}"
+        )
+
+
+class TestRoleBootstrap:
+    """``infra/postgres/initdb`` and the Compose service that mounts it.
+
+    Text assertions rather than a container run: no Docker daemon was available where this was
+    written, and a test that needs one would skip — the failure mode this milestone exists to remove.
+    What is asserted is drift: the role names the script creates, the names ``.env.example`` documents,
+    the privileges each is given, and the mount that makes the script run at all. The script's *effect*
+    on a real server is :class:`TestLeastPrivilegeRoles` below.
+    """
+
+    @staticmethod
+    def _repository_root() -> Path:
+        return BACKEND_ROOT.parent
+
+    @classmethod
+    def _initdb_script(cls) -> str:
+        """The script's SQL, with its comment lines removed and its whitespace collapsed.
+
+        Comments are stripped because the assertions below are about statements. The header explains
+        that giving the four roles distinct credentials would take "four ALTER ROLE statements", and a
+        substring search that reads prose would report the script as containing an ``ALTER ROLE`` it
+        does not execute.
+        """
+        path = cls._repository_root() / "infra" / "postgres" / "initdb" / "10-roles.sql"
+        assert path.is_file(), (
+            f"{path} is missing — .env.example and migrations/README.md both cite that directory"
+        )
+        sql = [
+            line
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if not line.lstrip().startswith("--")
+        ]
+        return " ".join(" ".join(sql).split())
+
+    @classmethod
+    def _documented_roles(cls) -> tuple[str, ...]:
+        """The four role names ``.env.example`` advertises, parsed rather than retyped."""
+        env = (cls._repository_root() / ".env.example").read_text(encoding="utf-8")
+        found = dict(re.findall(r"^(TLX_DB_ROLE_\w+)=(\w+)", env, flags=re.MULTILINE))
+        assert set(found) == {
+            "TLX_DB_ROLE_APP",
+            "TLX_DB_ROLE_MIGRATOR",
+            "TLX_DB_ROLE_WORKER",
+            "TLX_DB_ROLE_AUDITOR",
+        }, f".env.example documents {sorted(found)}"
+        return tuple(found.values())
+
+    def test_the_script_creates_every_role_the_environment_documents(self) -> None:
+        script = self._initdb_script()
+        for role in self._documented_roles():
+            assert f"'{role}'" in script, f"{role} is documented but never created"
+
+    def test_only_the_migration_role_may_create_schema_objects(self) -> None:
+        """``backend/migrations/README.md``: migrations run as ``tlx_migrator``, and the application
+        role cannot ``CREATE``."""
+        script = self._initdb_script()
+        grants = re.findall(r"GRANT CREATE ON SCHEMA public TO ([\w, ]+)", script)
+        assert grants, "no CREATE grant at all — the migration role could not build the schema"
+        assert {name.strip() for grant in grants for name in grant.split(",")} == {"tlx_migrator"}
+
+    def test_no_role_is_made_a_superuser_or_allowed_to_create_databases(self) -> None:
+        script = self._initdb_script()
+        assert "NOSUPERUSER" in script, "the CREATE ROLE should state its privileges explicitly"
+        assert "NOCREATEDB" in script
+        assert "CREATEROLE" not in script.replace("NOCREATEROLE", ""), (
+            "a role that can create roles can create a superuser"
+        )
+
+    def test_the_application_and_worker_roles_get_dml_and_the_auditor_gets_read_access(
+        self,
+    ) -> None:
+        """§11(7): ``tlx_app`` DML only, ``tlx_auditor`` read-only."""
+        script = self._initdb_script()
+        dml = re.search(r"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ([\w, ]+)", script)
+        assert dml, "the application roles need DML on tables created after this script runs"
+        assert {name.strip() for name in dml.group(1).split(",")} == {"tlx_app", "tlx_worker"}
+        reads = re.search(r"GRANT SELECT ON TABLES TO ([\w, ]+)", script)
+        assert reads, "the auditor must be able to read"
+        assert "tlx_auditor" in reads.group(1)
+
+    def test_the_script_never_overwrites_an_existing_credential(self) -> None:
+        """Re-running it against a live deployment must not undo a password rotation."""
+        script = self._initdb_script()
+        assert "WHERE NOT EXISTS" in script, (
+            "role creation is not conditional, so a re-run either fails or resets the password"
+        )
+        assert "ALTER ROLE" not in script, "an ALTER ROLE here could reset a rotated password"
+
+    def test_compose_mounts_the_script_where_the_entrypoint_looks(self) -> None:
+        compose = (self._repository_root() / "infra" / "compose" / "docker-compose.yml").read_text(
+            encoding="utf-8"
+        )
+        assert "../../infra/postgres/initdb:/docker-entrypoint-initdb.d" in compose, (
+            "the roles are never created, so the migration's append-only revokes no-op"
+        )
+        assert ":ro" in compose.split("/docker-entrypoint-initdb.d")[1][:8], (
+            "the database container should not be able to write to its own bootstrap script"
+        )
+
+    def test_compose_and_the_example_environment_agree_on_the_bootstrap_user(self) -> None:
+        """They disagreed: Compose said ``tlx`` and ``.env.example`` said ``tlx_admin``, so the
+        documented environment described a different database from the one the stack created — and the
+        healthcheck probed as a user the container was never told to create."""
+        compose = (self._repository_root() / "infra" / "compose" / "docker-compose.yml").read_text(
+            encoding="utf-8"
+        )
+        env = (self._repository_root() / ".env.example").read_text(encoding="utf-8")
+        documented = re.search(r"^POSTGRES_USER=(\w+)", env, flags=re.MULTILINE)
+        assert documented, ".env.example no longer documents POSTGRES_USER"
+        assert f"${{POSTGRES_USER:-{documented.group(1)}}}" in compose, (
+            "Compose does not read POSTGRES_USER, or defaults to a different user"
+        )
+        assert f"pg_isready -U ${{POSTGRES_USER:-{documented.group(1)}}}" in compose, (
+            "the healthcheck probes as a user the container may not have created"
+        )
+
+
+#: §11's four roles, in the spelling ``infra/postgres/initdb/10-roles.sql`` creates them.
+BOOTSTRAP_ROLES: Final[tuple[str, ...]] = (
+    "tlx_migrator",
+    "tlx_app",
+    "tlx_worker",
+    "tlx_auditor",
+)
+
+#: Mirrors the bootstrap script's grants. Written out rather than executed from the file because that
+#: file is psql: ``\\gexec`` and ``\\getenv`` are client meta-commands and no driver will run them.
+#: :class:`TestRoleBootstrap` is what keeps the two from drifting apart.
+BOOTSTRAP_GRANTS: Final[tuple[str, ...]] = (
+    "GRANT USAGE ON SCHEMA public TO tlx_migrator, tlx_app, tlx_worker, tlx_auditor",
+    "GRANT CREATE ON SCHEMA public TO tlx_migrator",
+    "ALTER DEFAULT PRIVILEGES FOR ROLE {owner} IN SCHEMA public "
+    "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tlx_app, tlx_worker",
+    "ALTER DEFAULT PRIVILEGES FOR ROLE {owner} IN SCHEMA public "
+    "GRANT SELECT ON TABLES TO tlx_auditor",
+    "ALTER DEFAULT PRIVILEGES FOR ROLE {owner} IN SCHEMA public "
+    "GRANT USAGE, SELECT ON SEQUENCES TO tlx_app, tlx_worker",
+)
+
+
+@pytest.fixture
+def least_privilege_database(maintenance_url: URL) -> Iterator[str]:
+    """A database migrated with §11's roles already present, and the roles removed afterwards.
+
+    Ordering is the entire point. The migration's append-only revokes are role-guarded ``DO`` blocks
+    that test ``pg_roles`` and no-op when a role is absent, so creating the roles *after* migrating
+    would prove nothing — the grants would be whatever a blank database gives every role. Roles first,
+    then ``upgrade head``, is the sequence a deployment performs.
+
+    Default privileges are per-database and apply to tables created *afterwards*, which is what makes
+    "the roles exist before the schema does" work at all: ``GRANT … ON ALL TABLES`` at bootstrap time
+    would grant nothing, because no table exists yet.
+
+    Roles are cluster-wide, so the fixture records which ones it created and drops only those — a
+    server that already has them (one initialised by the Compose stack, say) is left as it was.
+    """
+    created: list[str] = []
+    name = f"tlx_roles_{uuid4().hex[:12]}"
+    scratch_url = maintenance_url.set(database=name)
+    password = maintenance_url.password or ""
+    admin = create_engine(maintenance_url, isolation_level="AUTOCOMMIT")
+    try:
+        with admin.connect() as connection:
+            for role in BOOTSTRAP_ROLES:
+                if not one(
+                    connection.execute(
+                        text("SELECT count(*) FROM pg_roles WHERE rolname = :role"), {"role": role}
+                    )
+                ):
+                    # The password is interpolated rather than bound: CREATE ROLE is a utility
+                    # statement, and PostgreSQL rejects a parameter placeholder in the PASSWORD
+                    # position with a syntax error. Both values are known here — the role name from
+                    # BOOTSTRAP_ROLES, the password from the test URL — and the one character that
+                    # could break out of the literal is doubled.
+                    literal = password.replace("'", "''")
+                    connection.execute(
+                        text(
+                            f'CREATE ROLE "{role}" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE '
+                            f"PASSWORD '{literal}'"
+                        )
+                    )
+                    created.append(role)
+            connection.execute(text(f'CREATE DATABASE "{name}"'))
+    except BaseException:
+        _drop_roles(admin, created)
+        admin.dispose()
+        raise
+
+    scratch_admin = create_engine(scratch_url, isolation_level="AUTOCOMMIT")
+    try:
+        owner = maintenance_url.username or "postgres"
+        with scratch_admin.connect() as connection:
+            for statement in BOOTSTRAP_GRANTS:
+                connection.execute(text(statement.format(owner=owner)))
+        alembic_upgrade(str(scratch_url))
+        yield str(scratch_url)
+    finally:
+        scratch_admin.dispose()
+        with admin.connect() as connection:
+            connection.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+        _drop_roles(admin, created)
+        admin.dispose()
+
+
+class TestLeastPrivilegeRoles:
+    """M2's exit criterion (a): the application role genuinely cannot delete an audit row."""
+
+    def test_the_application_role_cannot_delete_an_audit_row(
+        self, least_privilege_database: str, maintenance_url: URL
+    ) -> None:
+        """The criterion the roadmap states, on the ledger it names.
+
+        Privilege is checked before rows are read, so an empty ``audit_logs`` proves the same thing a
+        full one would; the assertion is about the *statement* being refused, and the refusal names the
+        table, which is what an operator would see in a log.
+        """
+        engine = create_engine(_as_role(least_privilege_database, "tlx_app", maintenance_url))
+        try:
+            with pytest.raises(DBAPIError) as excinfo, engine.begin() as connection:
+                connection.execute(text("DELETE FROM audit_logs"))
+            assert "permission denied for table audit_logs" in str(excinfo.value.orig)
+        finally:
+            engine.dispose()
+
+    def test_the_application_role_cannot_rewrite_a_sweep_result(
+        self, least_privilege_database: str, maintenance_url: URL
+    ) -> None:
+        """``integrity_checks`` joined the append-only set in revision 0003, tested with a real row.
+
+        A sweep that reported ``mismatch`` and was then edited to ``verified`` is the exact tampering
+        §10's append-only rule exists to prevent, so this asserts the denial against a row that exists
+        and then asserts the row is unchanged.
+        """
+        owner = create_engine(least_privilege_database)
+        application = create_engine(_as_role(least_privilege_database, "tlx_app", maintenance_url))
+        try:
+            with owner.begin() as connection:
+                physical_object = one(
+                    connection.execute(
+                        text(INSERT_PHYSICAL_OBJECT_FOR_SWEEP),
+                        {"sha256": "f" * 64, "storage_path": "/var/lib/truthlens/evidence/ff/ffff"},
+                    )
+                )
+                connection.execute(
+                    text(INSERT_INTEGRITY_CHECK),
+                    {
+                        "physical_object_id": physical_object,
+                        "checked_at": datetime.now(UTC),
+                        "expected_sha256": "f" * 64,
+                        "actual_sha256": "0" * 64,
+                        "result": "mismatch",
+                        "job_id": None,
+                    },
+                )
+
+            with pytest.raises(DBAPIError) as update, application.begin() as connection:
+                connection.execute(text("UPDATE integrity_checks SET result = 'verified'"))
+            assert "permission denied for table integrity_checks" in str(update.value.orig)
+
+            with pytest.raises(DBAPIError) as deletion, application.begin() as connection:
+                connection.execute(text("DELETE FROM integrity_checks"))
+            assert "permission denied for table integrity_checks" in str(deletion.value.orig)
+
+            with owner.connect() as connection:
+                results = scalars(connection.execute(text("SELECT result FROM integrity_checks")))
+            assert tuple(results) == ("mismatch",), "the sweep result changed"
+        finally:
+            application.dispose()
+            owner.dispose()
+
+    def test_the_denial_is_specific_to_the_append_only_tables(
+        self, least_privilege_database: str, maintenance_url: URL
+    ) -> None:
+        """A role denied everything would also pass the two tests above.
+
+        ``cases`` is mutable, so ``tlx_app`` must still be able to delete from it — otherwise those
+        assertions say nothing about the revokes and everything about a blanket denial.
+        """
+        engine = create_engine(_as_role(least_privilege_database, "tlx_app", maintenance_url))
+        try:
+            with engine.begin() as connection:
+                result = connection.execute(text("DELETE FROM cases WHERE id = gen_random_uuid()"))
+            assert result.rowcount == 0
+            with pytest.raises(DBAPIError) as excinfo, engine.begin() as connection:
+                connection.execute(text("CREATE TABLE tlx_app_probe (id integer)"))
+            assert "permission denied for schema public" in str(excinfo.value.orig)
+        finally:
+            engine.dispose()
+
+    def test_the_application_role_can_still_write_and_read(
+        self, least_privilege_database: str, maintenance_url: URL
+    ) -> None:
+        """DML only, per §11(7): the denial above must not be a role that cannot do its job."""
+        engine = create_engine(_as_role(least_privilege_database, "tlx_app", maintenance_url))
+        try:
+            with engine.connect() as connection:
+                assert one(connection.execute(text("SELECT count(*) FROM audit_logs"))) == 0
+            with engine.begin() as connection:
+                connection.execute(
+                    text("INSERT INTO system_settings (key, updated_by) VALUES ('probe', NULL)")
+                )
+            with engine.connect() as connection:
+                assert one(connection.execute(text("SELECT count(*) FROM system_settings"))) == 1
+        finally:
+            engine.dispose()
+
+    def test_the_auditor_can_read_but_not_write(
+        self, least_privilege_database: str, maintenance_url: URL
+    ) -> None:
+        """§11(7): read-only, and that includes the administration tables revision 0003 added."""
+        engine = create_engine(_as_role(least_privilege_database, "tlx_auditor", maintenance_url))
+        try:
+            with engine.connect() as connection:
+                assert one(connection.execute(text("SELECT count(*) FROM audit_logs"))) == 0
+            with pytest.raises(DBAPIError) as excinfo, engine.begin() as connection:
+                connection.execute(
+                    text("INSERT INTO system_settings (key, updated_by) VALUES ('probe', NULL)")
+                )
+            assert "permission denied for table system_settings" in str(excinfo.value.orig)
+        finally:
+            engine.dispose()
+
+    def test_the_revokes_left_exactly_the_documented_split(
+        self, least_privilege_database: str
+    ) -> None:
+        """The whole matrix at once, so a fixture that stopped applying the revokes fails here rather
+        than making every test above pass for the wrong reason.
+
+        It also proves the migration ran: a database at the wrong revision would have no tables to
+        report privileges on at all.
+        """
+        engine = create_engine(least_privilege_database)
+        try:
+            with engine.connect() as connection:
+                assert (
+                    one(connection.execute(text("SELECT version_num FROM alembic_version")))
+                    == HEAD_REVISION
+                )
+                privileges = connection.execute(
+                    text("""
+                        SELECT relname,
+                               has_table_privilege('tlx_app', c.oid, 'SELECT'),
+                               has_table_privilege('tlx_app', c.oid, 'INSERT'),
+                               has_table_privilege('tlx_app', c.oid, 'UPDATE'),
+                               has_table_privilege('tlx_app', c.oid, 'DELETE'),
+                               has_table_privilege('tlx_auditor', c.oid, 'SELECT'),
+                               has_table_privilege('tlx_auditor', c.oid, 'INSERT')
+                        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                        WHERE n.nspname = 'public' AND c.relkind = 'r'
+                        ORDER BY relname
+                    """)
+                ).all()
+        finally:
+            engine.dispose()
+
+        by_name = {row[0]: tuple(row[1:]) for row in privileges}
+        for name in ("audit_logs", "custody_events", "integrity_checks"):
+            assert by_name[name] == (True, True, False, False, True, False), (
+                f"{name} is append-only: tlx_app must read and insert but never update or delete, and "
+                f"tlx_auditor must only read; got {by_name[name]}"
+            )
+        for name in ("cases", "evidence_items", "ai_messages", "user_sessions", "system_settings"):
+            assert by_name[name][:4] == (True, True, True, True), (
+                f"{name} is not a ledger; tlx_app needs full DML, got {by_name[name]}"
+            )
+            assert by_name[name][4:] == (True, False), (
+                f"{name} must be readable and not writable by tlx_auditor, got {by_name[name]}"
+            )
+
+
+def _drop_roles(admin: Engine, created: list[str]) -> None:
+    """Remove the roles this fixture created, and only those."""
+    with admin.connect() as connection:
+        for role in reversed(created):
+            connection.execute(text(f'DROP ROLE IF EXISTS "{role}"'))
+
+
+def _as_role(url: str, role: str, maintenance_url: URL) -> str:
+    """The same database, addressed as one of §11's roles."""
+    return str(
+        make_url(url).set(
+            username=role,
+            password=maintenance_url.password or None,
+            drivername=maintenance_url.drivername,
+        )
+    )
+
+
+def _load_revision(module_name: str) -> Any:
+    """A revision module, imported by file name.
+
+    ``migrations/versions`` is not a package and is excluded from mypy on purpose — a revision is a
+    frozen script, not library code — so importing one means loading the file. Module-level execution
+    is constants and function definitions only, which is what makes that safe to do in a test.
+    """
+    path = BACKEND_ROOT / "migrations" / "versions" / f"{module_name}.py"
+    assert path.is_file(), f"no revision file at {path}"
+    specification = importlib.util.spec_from_file_location(f"revision_{module_name}", path)
+    assert specification is not None, f"{path} could not be loaded as a module"
+    assert specification.loader is not None, f"{path} has no loader"
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    return module
 
 
 def _refused_by(error: IntegrityError) -> str | None:

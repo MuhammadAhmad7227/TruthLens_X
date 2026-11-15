@@ -50,6 +50,7 @@ from app.models.types import text_array
 
 if TYPE_CHECKING:
     from app.models.analysis import AnalysisJob, AnalysisResult
+    from app.models.assistant import AIConversation
     from app.models.audit import AuditLog
     from app.models.evidence import CustodyEvent, Derivative, EvidenceItem
     from app.models.identity import Organisation, User
@@ -162,6 +163,9 @@ class Case(Base, TimestampMixin, SoftDeleteMixin):
     reports: Mapped[list[Report]] = relationship(back_populates="case")
     audit_entries: Mapped[list[AuditLog]] = relationship(back_populates="case")
     notifications: Mapped[list[Notification]] = relationship(back_populates="case")
+    #: The assistant's threads on this case (§8.2). Retrieval is hard-scoped to a case, so every
+    #: conversation belongs to one and this list is the whole of what the assistant can reach.
+    conversations: Mapped[list[AIConversation]] = relationship(back_populates="case")
 
     __table_args__ = (
         CheckConstraint(

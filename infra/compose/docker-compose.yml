@@ -14,6 +14,9 @@
 # the backend's Settings model does not read — the stack would have started with no database URL.
 #
 # WHAT IS NOT HERE, HONESTLY
+#   * Migrations are not run by any service. `alembic upgrade head` is a deployment step run as
+#     tlx_migrator before the API starts (backend/migrations/README.md); a container that migrated on
+#     boot would race every other replica and would need DDL rights the API role must not have.
 #   * No Celery worker or beat service — the async platform is M7. Adding a worker now would be a
 #     service that cannot work.
 #   * No GPU service, no ClamAV, no poppler — all opt-in extras behind ENABLE_* flags (ADR-0001).
@@ -44,6 +47,10 @@ x-backend-env: &backend-env
   LOG_FORMAT: json
   SERVICE_NAME: truthlens
   # ── Connections (internal network only; no host port is published) ───────────
+  # tlx_app, created by infra/postgres/initdb/10-roles.sql with the bootstrap password: one
+  # credential for all four roles is what this file already assumed, and giving them distinct
+  # passwords is a deployment hardening step (four ALTER ROLEs and four variables), not something the
+  # bootstrap can decide for an operator. The database name and port are the container's own.
   DATABASE_URL: "postgresql+psycopg://tlx_app:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set — generate one with `openssl rand -hex 24`}@postgres:5432/truthlens"
   REDIS_URL: "redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set — generate one with `openssl rand -hex 24`}@redis:6379/0"
   DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
@@ -153,18 +160,35 @@ services:
     restart: unless-stopped
     # No `ports:` — DEPLOYMENT_GUIDE is explicit that the database is never published.
     environment:
-      POSTGRES_DB: truthlens
-      POSTGRES_USER: tlx
+      # Interpolated from the environment rather than hardcoded, so the stack and .env.example cannot
+      # disagree about who the bootstrap superuser is. They did: this file said `tlx` while
+      # .env.example documented POSTGRES_USER=tlx_admin, and the healthcheck below probed as `tlx` —
+      # so the example environment and the Compose file described two different databases. The
+      # defaults match .env.example, which is the documented source of truth for this stack.
+      POSTGRES_DB: ${POSTGRES_DB:-truthlens}
+      POSTGRES_USER: ${POSTGRES_USER:-tlx_admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # No initdb mount yet. The least-privilege roles DATABASE_DESIGN specifies (tlx_app with no DDL
-      # rights, tlx_migrator with them) are created by the M2 migration baseline, not by a shell
-      # script that would drift from it. Until then the stack runs as the bootstrap superuser, which
-      # is acceptable for a supervised development bring-up and is NOT acceptable in production.
+      # The least-privilege roles DATABASE_DESIGN §11 names — tlx_migrator with DDL rights, tlx_app
+      # with DML only, tlx_worker, and read-only tlx_auditor — plus the default privileges that give
+      # them table access before the tables exist. The migration baseline then REVOKEs
+      # UPDATE/DELETE/TRUNCATE on the append-only ledgers from the three non-migrator roles, and that
+      # revoke is a no-op when the roles are absent: without this mount the stack would run as the
+      # bootstrap superuser, which §11 calls acceptable for a supervised development bring-up and
+      # NOT acceptable in production.
+      #
+      # Read-only, and executed by the image's entrypoint only when the data directory is EMPTY — a
+      # restart does not re-run it. Changing this file on an existing volume needs a manual
+      # `docker compose exec -T postgres psql … < infra/postgres/initdb/10-roles.sql`; the script is
+      # written to be safe to run that way (see its header).
+      - ../../infra/postgres/initdb:/docker-entrypoint-initdb.d:ro
     networks: [tlxnet]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tlx -d truthlens"]
+      # Same interpolation as the environment above: a healthcheck that probes as a user the container
+      # was not told to create reports unhealthy forever, and "unhealthy" is what an orchestrator
+      # acts on.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tlx_admin} -d ${POSTGRES_DB:-truthlens}"]
       interval: 5s
       timeout: 5s
       retries: 10
