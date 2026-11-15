@@ -1,0 +1,65 @@
+# CODEOWNERS — https://docs.github.com/repositories/managing-your-repositories-settings-and-features/customizing-your-repository/about-code-owners
+#
+# TruthLens X is a single-maintainer repository today, so every path resolves to the owner.
+# The file exists anyway, for two reasons that are not about headcount:
+#
+#   1. It makes review *required* on the paths where a silent change is expensive. Once branch
+#      protection requires review from code owners, the paths below cannot be merged by an
+#      automated or unreviewed change — which matters most for the gates that police licensing
+#      and evidence integrity, because those are exactly the files a well-meaning "quick fix"
+#      tends to relax first.
+#   2. It documents intent. When a second maintainer arrives, this file is the map of which
+#      areas need a specialist, and the comments say why.
+#
+# Syntax note: later patterns take precedence over earlier ones, so the specific rules are
+# listed after the catch-all.
+
+# ── Catch-all ─────────────────────────────────────────────────────────────────────────────
+*                                   @MuhammadAhmad7227
+
+# ── Decisions and architecture ────────────────────────────────────────────────────────────
+# An ADR is a record of a decision that was ratified against alternatives; editing one is
+# changing a decision, not editing prose. docs/DECISIONS.md is the register that the ADRs,
+# the roadmap (§ "Decision traceability") and the security gates all cite by number, so a
+# renumbering here breaks references in code comments and CI messages across the repository.
+/docs/adr/                          @MuhammadAhmad7227
+/docs/DECISIONS.md                  @MuhammadAhmad7227
+/docs/SYSTEM_ARCHITECTURE.md        @MuhammadAhmad7227
+/docs/SECURITY_ARCHITECTURE.md      @MuhammadAhmad7227
+
+# ── Licensing ─────────────────────────────────────────────────────────────────────────────
+# ADR-0008: the repository is deliberately UNLICENSED until the owner records a decision.
+# There is no LICENSE file, and that absence is asserted by a CI gate rather than left to
+# chance — see "No implied licence grant in package metadata" in .github/workflows/security.yml.
+# The audit below tracks every third-party licence and the legal gates (L-1 … L-11) that must
+# clear before a dependency may be added, so it is owned as carefully as the ADRs.
+/docs/THIRD_PARTY_LICENSE_AUDIT.md  @MuhammadAhmad7227
+
+# ── Security gates and CI ─────────────────────────────────────────────────────────────────
+# These files are the enforcement layer. A change here can silently disable a check while
+# leaving the workflow green, which is worse than a failing build: it removes the signal and
+# keeps the confidence. Every gate in security.yml has a negative control for this reason.
+/.github/workflows/security.yml     @MuhammadAhmad7227
+/.github/                           @MuhammadAhmad7227
+
+# ── Evidence integrity and configuration ──────────────────────────────────────────────────
+# Anything that touches hashing, custody, retention or the production configuration refusals
+# (DEBUG/TESTING off, EVIDENCE_ENCRYPTION != disabled, STORAGE_BACKEND != filesystem, TZ == UTC,
+# ALPR_ALLOW_REGISTRY_LOOKUP refused in every environment per ADR-0013).
+/backend/app/core/                  @MuhammadAhmad7227
+/backend/tests/security/            @MuhammadAhmad7227
+/backend/tests/architecture/        @MuhammadAhmad7227
+
+# ── Deployment ────────────────────────────────────────────────────────────────────────────
+# Single-host Docker Compose (ADR-0005). Only nginx may publish ports; the API and Postgres
+# stay on the internal 172.28.0.0/24 network, which is also the pinned value of
+# FORWARDED_ALLOW_IPS in api.Dockerfile. Widening that to `*` would let a client spoof
+# X-Forwarded-For into the audit log.
+/infra/                             @MuhammadAhmad7227
+
+# ── The AI engine contract ────────────────────────────────────────────────────────────────
+# ai_services must stay free of third-party runtime dependencies and must never import the
+# backend (SYSTEM_ARCHITECTURE §4.1 rule 5). Engines arrive as plugins through the
+# `truthlens.engines` entry-point group, so a dependency added here means the contract itself
+# started reaching out to a third party — see ADR-0012 and ADR-0021.
+/ai_services/                       @MuhammadAhmad7227

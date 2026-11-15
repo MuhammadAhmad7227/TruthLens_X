@@ -1,0 +1,59 @@
+# EditorConfig — https://editorconfig.org
+#
+# One source of truth for whitespace, so a reviewer's diff never contains accidental
+# reindentation. The values here mirror what the tooling already enforces:
+#   * Python line length 100 and 4-space indent  -> [tool.ruff] in backend/pyproject.toml
+#                                                   and ai_services/pyproject.toml
+#   * LF endings everywhere                      -> the container images and the compose stack
+#                                                   are Linux; a CRLF file committed from Windows
+#                                                   would show as a whole-file diff and, worse,
+#                                                   would break `#!/bin/sh` scripts in infra/.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# Python: 100 columns is what Ruff formats to. E501 is deliberately ignored by the linter
+# (see backend/pyproject.toml) because the formatter owns line length, so the editor should
+# agree with the formatter rather than with the linter.
+[*.py]
+indent_size = 4
+max_line_length = 100
+
+[*.{ts,tsx,js,jsx,mjs,cjs}]
+indent_size = 2
+max_line_length = 100
+
+# YAML is indentation-sensitive: two spaces, never tabs. A tab in a workflow file is a
+# parse error at run time, not at commit time, which is the expensive place to find it.
+# The compose files additionally use `${VAR:?message}` interpolation, where a stray
+# ": " inside an unquoted message breaks the parse — see infra/compose/docker-compose.yml.
+[*.{yml,yaml}]
+indent_size = 2
+
+[*.json]
+indent_size = 2
+
+[*.md]
+# Two trailing spaces are a hard line break in Markdown. Stripping them silently
+# reflows prose and destroys intentional line breaks in the ADRs and the roadmap.
+trim_trailing_whitespace = false
+max_line_length = 100
+
+[Makefile]
+indent_style = tab
+
+# Generated artefacts. Do not hand-edit: the next regeneration discards the edit and the
+# diff looks like a deliberate change to a file nobody meant to touch.
+#   frontend/src/types/api.ts     generated from the OpenAPI schema
+#   tools/openapi/openapi-v1.json the frozen contract baseline
+# Neither exists yet (both arrive with later milestones); the entries are recorded here so
+# the convention is decided before the files are, rather than argued about afterwards.
+[{frontend/src/types/api.ts,tools/openapi/openapi-v1.json}]
+insert_final_newline = true
+trim_trailing_whitespace = false

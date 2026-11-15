@@ -1,0 +1,24 @@
+# Issue template chooser.
+#
+# Blank issues are disabled on purpose. TruthLens X has a documented decision register and a
+# milestone plan; an unstructured issue cannot say which of the two it is asking to change, and
+# the answer to "should this behave differently?" is frequently "this was already decided, see
+# ADR-nnnn". Routing that question to the register first keeps the issue tracker for work rather
+# than for re-litigating settled decisions.
+blank_issues_enabled: false
+
+contact_links:
+  - name: 📖 Check the decision register first
+    url: https://github.com/MuhammadAhmad7227/TruthLens_X/blob/main/docs/DECISIONS.md
+    about: >-
+      Many behaviours here are deliberate and ratified — no PostgreSQL row-level security
+      (ADR-0010), filesystem-only storage (ADR-0011), offline gazetteer disabled by default
+      (ADR-0015), Redis pinned to 7.2 (ADR-0022), repository intentionally unlicensed (ADR-0008).
+      If your issue asks for one of these to change, read the ADR first and cite it.
+
+  - name: 🔒 Report a security vulnerability privately
+    url: https://github.com/MuhammadAhmad7227/TruthLens_X/security/advisories/new
+    about: >-
+      Do NOT open a public issue for a vulnerability. This system processes evidence intended for
+      legal proceedings, so a public report of an integrity or disclosure flaw can cause real harm
+      before it can be fixed. Use a draft security advisory; it is visible only to maintainers.

@@ -61,3 +61,57 @@ jobs:
       # already asserts it, and a second implementation of the same check in shell would drift from
       # the test. The guarantee (ADR-0008 — the repository is deliberately unlicensed, so a generated
       # schema must not imply a grant) is enforced once, in the suite above.
+
+  # ai_services is a separate distribution with its own dependency graph, so it gets its own job:
+  # a failure here is an engine-contract or registry defect, not an API defect, and folding the two
+  # suites into one job would hide that difference in the check list — which is the only thing a
+  # reviewer reads first.
+  #
+  # Same build-tooling upgrade as the `test` job, for the same reason: pip-audit scans the whole
+  # environment, and the setuptools a runner ships can carry CVEs that have nothing to do with this
+  # dependency graph. Upgrading fixes that honestly; --ignore-vuln-id would suppress a real finding.
+  ai-services:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai_services
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: ai_services/pyproject.toml
+
+      - name: Upgrade build tooling
+        run: pip install --upgrade pip setuptools wheel
+
+      # The `dev` extra is the whole toolchain; ai_services has no runtime dependencies at all
+      # (ADR-0021, ADR-0023), and the licence gate in security.yml fails the build if that changes.
+      - name: Install (dev extra)
+        run: pip install -e '.[dev]'
+
+      - name: Lint
+        run: ruff check engines tests
+
+      - name: Format check
+        run: ruff format --check engines tests
+
+      - name: Type check (strict)
+        run: mypy engines tests
+
+      - name: Tests
+        run: pytest
+
+      # Run from OUTSIDE the package directory, on purpose. `engines` is importable from the current
+      # working directory whether or not the distribution installed correctly, so a smoke test run
+      # from ai_services/ would pass even for a broken wheel — which is exactly what happened during
+      # development, when a hatchling `sources` remap silently made editable installs impossible
+      # (pfmoore/editables#20: a path rewrite may remove a prefix but may not change one). From a
+      # neutral directory, only a working install can import it.
+      - name: Smoke — installed distribution exposes the contract
+        working-directory: ${{ runner.temp }}
+        run: >-
+          python -c "from engines import CONTRACT_VERSION, Engine, EngineRegistry;
+          print('installed contract', CONTRACT_VERSION, Engine.__name__, EngineRegistry.__name__)"

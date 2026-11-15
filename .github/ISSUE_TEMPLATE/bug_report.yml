@@ -1,0 +1,170 @@
+name: 🐛 Bug report
+description: Report behaviour that is wrong, unsafe, or contradicts the documented decisions.
+title: "[bug] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a problem.
+
+        **Before you file this:** check [docs/DECISIONS.md](https://github.com/MuhammadAhmad7227/TruthLens_X/blob/main/docs/DECISIONS.md)
+        and `docs/adr/`. A number of behaviours that look like bugs are ratified decisions —
+        for example a forbidden-case access returning **404 rather than 403** (ADR-0004), the
+        absence of a `tenant_id` column (ADR-0010), or the repository having **no LICENSE file**
+        (ADR-0008). If your report is really "I disagree with a decision", say so and cite the ADR.
+
+        **Do not use this form for a security vulnerability.** Use a
+        [private security advisory](https://github.com/MuhammadAhmad7227/TruthLens_X/security/advisories/new)
+        instead — public disclosure of an evidence-integrity or disclosure flaw can cause harm
+        before it can be fixed.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the system misbehaves?
+      multiple: true
+      options:
+        - "backend — API / core config"
+        - "backend — evidence ingest, hashing, custody"
+        - "backend — forensics pipelines"
+        - "backend — async platform (Celery, queues, SSE)"
+        - "ai_services — engine contract or registry"
+        - "frontend — UI"
+        - "infra — Docker Compose, nginx, containers"
+        - "CI / gates / repository tooling"
+        - "documentation"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: milestone
+    attributes:
+      label: Milestone
+      description: >-
+        From docs/IMPLEMENTATION_ROADMAP.md. Pick the milestone that introduced the behaviour, or
+        the one you were working in when you hit it.
+      options:
+        - "M0 — Architecture & docs"
+        - "M0.5 — Decision ratification"
+        - "M1 — Repository foundation"
+        - "M2 — Database & migrations"
+        - "M3 — Auth & RBAC"
+        - "M4 — Case management"
+        - "M5 — Evidence ingest & integrity"
+        - "M6 — Chain of custody"
+        - "M7 — Async platform"
+        - "M8 — Metadata extraction"
+        - "M9 — Image forensics"
+        - "M10 — Document forensics"
+        - "M11 — Audio forensics"
+        - "M12 — Video forensics"
+        - "M13 — Detection, tracking & ALPR"
+        - "M14 — Deepfake indicators"
+        - "M15 — Comparison & similarity"
+        - "M16 — Graph & timeline"
+        - "M17 — AI assistant"
+        - "M18 — Reports"
+        - "M19 — Admin & monitoring"
+        - "M20 — Security hardening & assurance"
+        - "M21 — E2E, performance & release"
+        - "Not milestone-specific"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what did you expect instead?
+      description: >-
+        Two parts, please: the observed behaviour, then the behaviour you expected and why you
+        expected it (a doc citation beats an opinion — quote the ADR, the roadmap task, or the
+        architecture section).
+      placeholder: |
+        Observed: /readyz returns 200 while Redis is unreachable.
+        Expected: 503, because docs/SYSTEM_ARCHITECTURE.md §… says readiness reflects dependency probes.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Exact steps to reproduce
+      description: >-
+        Commands, not prose. Include the working directory and the environment variables you set.
+        A maintainer must be able to paste this and see the same failure.
+      placeholder: |
+        cd backend
+        pip install -e '.[dev,db]'
+        FOO=bar pytest tests/unit/test_health.py -q
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Commit SHA or release
+      description: >-
+        `git rev-parse HEAD`. "latest" is not a version — behaviour differs between milestones,
+        and several fixes landed only on specific commits.
+      placeholder: "a1991ed2fc3376974ed5ff3ee928fa66b8f6a356"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: >-
+        How are you running it? The compose stack is the supported deployment (ADR-0005: single
+        host, Docker Compose, no Kubernetes in v1), so anything else is worth calling out.
+      placeholder: |
+        - Deployment: docker compose (infra/compose/docker-compose.yml) / bare uvicorn / other
+        - Host OS and version:
+        - Python version:            (python3 --version)
+        - Node version:              (node --version)
+        - Postgres / Redis versions: (pgvector/pgvector:pg16, redis:7.2-alpine are the pinned images)
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs, gate output, or error text
+      description: |
+        Paste the real output, not a description of it. **Redact first** — see the checkbox below.
+        Useful things to include: the failing test's assertion text, `ruff`/`mypy`/`bandit` output,
+        the container log lines around the failure, and the HTTP status plus problem-details body.
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: integrity
+    attributes:
+      label: Evidence integrity and disclosure
+      description: >-
+        These are not legal boilerplate. TruthLens X exists to process evidence that may be
+        presented in a legal proceeding, so a report that leaks real material or overstates what
+        was verified does concrete harm.
+      options:
+        - label: >-
+            This report contains **no real evidence, no real personal data, and no real
+            credentials.** Anything sensitive has been replaced with an obviously synthetic value
+            (for example `CANARY-SECRET-…-do-not-leak`), not merely truncated.
+          required: true
+        - label: >-
+            If this involves a security vulnerability — unauthorised disclosure, a broken custody
+            chain, a hash mismatch, or a way to bypass an access check — I have **not** filed it
+            publicly, and will use a private security advisory instead.
+          required: true
+        - label: >-
+            I have stated honestly what I actually ran and what I only assumed. If I could not
+            reproduce this reliably, I have said so rather than presenting a guess as a fact.
+          required: true
+        - label: >-
+            I checked `docs/DECISIONS.md` and `docs/adr/`, and this is not a ratified decision I
+            simply disagree with. If it is, I have cited the ADR number in my description.
+          required: true
