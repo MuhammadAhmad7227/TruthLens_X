@@ -1,0 +1,106 @@
+# Forensic engines, packaged separately from the API.
+#
+# WHY A SEPARATE DISTRIBUTION
+#   The engine dependency graph is where the heavy and the licence-gated packages live (Pillow,
+#   pikepdf, ffmpeg bindings, torch, model weights). Isolating them here means:
+#     * the API image never installs a GPU stack it cannot use;
+#     * an AGPL-only dependency stays inside an opt-in extra instead of reaching platform code
+#       (ADR-0001);
+#     * an engine can be tested without a database, a queue or the FastAPI app.
+#
+# WHAT SHIPS AT THIS STAGE
+#   The contract and the registry only, with NO third-party runtime dependencies and NO engines.
+#   Nothing here analyses evidence. Engines arrive from M8 (metadata) onwards, each bringing its own
+#   pinned dependency. Declaring those pins now — before any code consumes them — would put
+#   unaudited packages into the resolved graph that `pip-audit` and the licence gate scan, for no
+#   benefit. So the `media` and `ml` extras are documented below but deliberately not declared; each
+#   is added by the milestone that needs it.
+
+[build-system]
+requires = ["hatchling==1.33.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "truthlens-ai-services"
+version = "0.1.0"
+description = "TruthLens X forensic engine contract and registry"
+readme = "README.md"
+requires-python = ">=3.11"
+# No runtime dependencies. Keep it that way until an engine needs one, and then put it in the extra
+# that matches its licence and weight, not in the base install.
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.2.0",              # MIT
+    "ruff==0.14.10",              # MIT — lint AND format, same configuration as backend/
+    "mypy==1.19.1",               # MIT
+]
+# Reserved, NOT declared:
+#   media = [...]  # Pillow (HPND), ffmpeg bindings, audio codecs — arrives with M8/M9/M11/M12
+#   ml    = [...]  # torch, onnxruntime, model loaders — arrives with M13/M14/M15
+#   agpl  = [...]  # ultralytics, pymupdf — opt-in only, never default (ADR-0001)
+# An empty extra is a promise nobody can verify; these are added with the code that uses them.
+
+# Installed as the top-level package `engines`, mirroring how backend/ installs as `app`.
+#
+# A namespaced install (`ai_services.engines`) was attempted first via a wheel `sources` remap, and
+# hatchling rejects it: "Dev mode installations are unsupported when any path rewrite in the
+# `sources` option changes a prefix rather than removes it" (pfmoore/editables#20). So the choice is
+# a generic top-level name with working editable installs, or a src-layout that contradicts the
+# directory tree ratified in SYSTEM_ARCHITECTURE §4. Consistency with the pattern already working in
+# backend/ won.
+#
+# The trade-off is recorded rather than hidden: `engines` is a generic top-level name, and a worker
+# image installs this distribution beside the backend's `app`. If a third-party package ever ships a
+# module called `engines`, the two collide. The fix at that point is to rename this package and
+# update §4 in the same change — not to leave a silent import-time lottery.
+[tool.hatch.build.targets.wheel]
+packages = ["engines"]
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Ruff — same rule families as backend/, so one style covers the monorepo
+# ══════════════════════════════════════════════════════════════════════════════
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["engines", "tests"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["engines"]
+combine-as-imports = true
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "S", "ASYNC", "RUF", "SIM", "TID", "PT", "N", "PL"]
+ignore = [
+    "E501",    # line length is enforced by the formatter, not the linter
+    "S101",    # assert is the correct idiom inside tests
+]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+# ══════════════════════════════════════════════════════════════════════════════
+# mypy — strict, matching backend/app/core
+# ══════════════════════════════════════════════════════════════════════════════
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+show_error_codes = true
+pretty = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*", "conftest", "fake_engine_plugin"]
+disallow_untyped_decorators = false
+
+# ══════════════════════════════════════════════════════════════════════════════
+# pytest
+# ══════════════════════════════════════════════════════════════════════════════
+# tests/ has no __init__.py on purpose: pytest's default prepend import mode then puts tests/ on
+# sys.path, which is how the discovery tests load `fake_engine_plugin` through a real
+# importlib.metadata EntryPoint exactly as an installed plugin distribution would be loaded.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+filterwarnings = ["error"]
