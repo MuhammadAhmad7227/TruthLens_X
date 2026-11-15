@@ -209,6 +209,59 @@ async def check_database() -> CheckResult:
     return await asyncio.to_thread(_blocking)
 
 
+#: How a schema-head state reads to an operator. Everything except ``current`` blocks readiness, and
+#: none of the failing states is ``degraded``: a schema that does not match the code cannot serve
+#: traffic partially, so "degraded" would understate it.
+_SCHEMA_STATE_TO_CHECK_STATUS: dict[str, CheckStatus] = {
+    "current": "ok",
+    "not_configured": "not_configured",
+    "behind": "unavailable",
+    "diverged": "unavailable",
+    "not_migrated": "unavailable",
+    "multiple_heads": "unavailable",
+    "unreachable": "unavailable",
+}
+
+
+async def check_migrations() -> CheckResult:
+    """Verify the database's schema revision matches the migrations this build carries (§11).
+
+    A server whose schema is behind its code answers queries about columns that do not exist yet; one
+    whose schema is *ahead* was built by a release that has since been rolled back. Neither is a
+    state to serve traffic from, so this check is required and both are reported as unavailable with
+    the revisions named.
+    """
+    try:
+        # Local import, for the same reason check_database does it: app.db.migrations imports
+        # sqlalchemy at module scope, and sqlalchemy lives in the optional `db` extra. This module
+        # must stay importable — and /readyz must stay able to answer — where that extra is absent.
+        from app.db.migrations import verify_schema_head  # noqa: PLC0415
+    except ImportError:
+        return CheckResult(
+            name="migrations",
+            status="unavailable",
+            detail="sqlalchemy is not installed; install the 'db' extra",
+        )
+
+    def _blocking() -> CheckResult:
+        # verify_schema_head never raises — it exists to be called from a probe — but a probe that
+        # can take /readyz down with it is worse than no probe, so the call is still guarded.
+        try:
+            status = verify_schema_head()
+        except Exception as exc:  # a probe reports; it does not propagate
+            return CheckResult(
+                name="migrations",
+                status="unavailable",
+                detail=f"{type(exc).__name__}: {exc}",
+            )
+        check_status = _SCHEMA_STATE_TO_CHECK_STATUS.get(status.state, "unavailable")
+        return CheckResult(name="migrations", status=check_status, detail=status.detail)
+
+    # Off the event loop: this opens a connection, and a hung database must not stall /readyz for
+    # every other caller. asyncio.wait_for in ReadinessRegistry._run bounds it.
+    return await asyncio.to_thread(_blocking)
+
+
 async def check_redis() -> CheckResult:
     """Verify Redis answers ``PING`` using a raw RESP connection.
 
@@ -288,26 +341,21 @@ def _read_line(channel: Any, limit: int = 512) -> str:
 
 
 def build_default_registry() -> ReadinessRegistry:
-    """Wire the checks M1 is responsible for.
+    """Wire the checks that exist, and register the one that does not yet.
 
-    ``migrations`` and ``preflight`` are registered as **not required** in M1 and report honestly
-    that they are not yet implemented. They are flipped to required in the milestone that delivers
-    them — M2 for schema-head verification, M19/M20 for the encrypted-volume host preflight
-    (ADR-0006 §5.4). Registering them now, reporting their real state, is deliberate: a check that
-    appears only when it starts passing would hide the fact that it was missing before.
+    ``migrations`` became **required** in M2, when schema-head verification arrived: from here on a
+    server whose schema does not match its code reports not-ready rather than serving queries it
+    cannot satisfy (§11).
+
+    ``preflight`` is still registered as **not required** and still reports honestly that it is not
+    implemented; it flips in M19/M20, when the encrypted-volume host preflight arrives (ADR-0006
+    §5.4). Registering a check before it can pass is deliberate — one that appears only when it
+    starts passing would hide the fact that it was missing before.
     """
     registry = ReadinessRegistry()
     registry.register("database", check_database, required=True)
     registry.register("redis", check_redis, required=True)
-
-    async def _migrations_pending() -> CheckResult:
-        return CheckResult(
-            name="migrations",
-            status="not_configured",
-            detail=(
-                "schema-head verification is delivered in M2; no domain schema exists yet in M1"
-            ),
-        )
+    registry.register("migrations", check_migrations, required=True)
 
     async def _preflight_pending() -> CheckResult:
         settings = get_settings()
@@ -327,7 +375,6 @@ def build_default_registry() -> ReadinessRegistry:
             ),
         )
 
-    registry.register("migrations", _migrations_pending, required=False)
     registry.register("preflight", _preflight_pending, required=False)
     return registry
 

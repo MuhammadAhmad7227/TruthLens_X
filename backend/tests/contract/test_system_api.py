@@ -28,7 +28,10 @@ def _registry(statuses: dict[CheckName, CheckStatus]) -> ReadinessRegistry:
         async def _check(name: str = name, status_value: CheckStatus = status_value) -> CheckResult:
             return CheckResult(name=name, status=status_value, detail=f"stub: {status_value}")  # type: ignore[arg-type]
 
-        registry.register(name, _check, required=name in {"database", "redis"})
+        # Mirrors build_default_registry: database, redis and migrations are required, preflight is
+        # not (it arrives in M19/M20). Keeping the two in step is what makes these contract tests
+        # about the HTTP surface rather than about a policy this file invented.
+        registry.register(name, _check, required=name in {"database", "redis", "migrations"})
     return registry
 
 
@@ -113,9 +116,32 @@ class TestReadiness:
             assert test_client.get("/readyz").status_code == 503
 
     def test_optional_pending_checks_do_not_block_readiness(self, make_client: Any) -> None:
-        """M1 registers migrations/preflight as optional and reports their real state."""
-        with make_client({"database": "ok", "redis": "ok"}) as test_client:
+        """``preflight`` is still pending (M19/M20) and must not block readiness.
+
+        ``migrations`` joined the required set in M2, so it is answered here: this test is about the
+        optional check, and the schema probe has its own.
+        """
+        with make_client({"database": "ok", "redis": "ok", "migrations": "ok"}) as test_client:
             assert test_client.get("/readyz").status_code == 200
+
+    def test_a_schema_behind_the_code_is_not_ready(self, make_client: Any) -> None:
+        """§11 at the HTTP boundary.
+
+        The scenario this exists for: a deployment where the new image started before the migration
+        ran, or the migration failed and the orchestrator carried on. The code queries columns that
+        do not exist yet, so every request would fail individually and confusingly. Refusing to be
+        ready takes the instance out of rotation instead, and says why.
+        """
+        with make_client({"database": "ok", "redis": "ok", "migrations": "unavailable"}) as client:
+            response = client.get("/readyz")
+        assert response.status_code == 503
+        assert response.headers["content-type"].startswith("application/problem+json")
+        body = response.json()
+        assert body["error_code"] == "DEPENDENCY_UNAVAILABLE"
+        failed = [check["name"] for check in body["report"]["checks"] if check["status"] != "ok"]
+        assert failed == ["migrations"], (
+            "the schema must be the named reason, or an operator sees a 503 with nothing to act on"
+        )
 
 
 class TestStatus:
