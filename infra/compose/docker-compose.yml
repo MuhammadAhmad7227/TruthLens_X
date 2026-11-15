@@ -1,36 +1,203 @@
-services:
-  postgres:
-    image: pgvector/pgvector:pg16
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-truthlens}
-      POSTGRES_USER: ${POSTGRES_USER:-tlx}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tlx_dev_only}
-    healthcheck: {test: ["CMD-SHELL","pg_isready -U tlx -d truthlens"], interval: 5s, timeout: 5s, retries: 10}
-    volumes: [postgres_data:/var/lib/postgresql/data]
+# TruthLens X — single-host Docker Compose stack (M1 foundation)
+#
+# TOPOLOGY — this file is written against DEPLOYMENT_GUIDE's port-exposure rule:
+#   "only nginx publishes 80/443. Postgres, Redis, the API, workers, and the frontend are reachable
+#    only on the internal compose network."
+# So exactly one service below has a `ports:` key. Everything else is internal. Reaching the API or
+# database directly is done with `docker compose exec`, never by publishing a port. An earlier
+# version of this file published 8000 and 3000 and had no nginx at all; that contradicted the
+# ratified guide and is corrected here.
+#
+# ENVIRONMENT VARIABLE NAMES follow the ratified DEPLOYMENT_GUIDE / .env.example convention:
+# unprefixed names (DATABASE_URL, SECRET_KEY, MAX_UPLOAD_BYTES) with only TLX_ENV and TLX_VERSION
+# carrying the TLX_ prefix. An earlier version used a blanket TLX_ prefix (TLX_DATABASE_URL), which
+# the backend's Settings model does not read — the stack would have started with no database URL.
+#
+# WHAT IS NOT HERE, HONESTLY
+#   * No Celery worker or beat service — the async platform is M7. Adding a worker now would be a
+#     service that cannot work.
+#   * No GPU service, no ClamAV, no poppler — all opt-in extras behind ENABLE_* flags (ADR-0001).
+#   * Images are pinned by TAG, not by digest. DEPLOYMENT_GUIDE requires digests; resolving one needs
+#     a container registry, which was unreachable where this was written. A fabricated digest would
+#     be worse than an honest tag. Run `docker buildx imagetools inspect <image>` on a networked host
+#     and replace each tag before production. The redis version below is NOT negotiable — see
+#     ADR-0022: Redis 8 moved to RSALv2/SSPLv1, and the CI gate fails on redis:8* / redis:7.3*.
+#   * TLS terminates at nginx but no certificate provisioning is included; see DEPLOYMENT_GUIDE.
+#
+# NOT VALIDATED: no Docker daemon was available where this file was written, so `docker compose
+# config` has never been run against it. Treat first bring-up as a supervised event.
 
-  redis:
-    image: redis:7.2-alpine
-    command: ["redis-server","--appendonly","yes"]
-    healthcheck: {test: ["CMD","redis-cli","ping"], interval: 5s, timeout: 5s, retries: 10}
-    volumes: [redis_data:/data]
+name: truthlens
+
+x-backend-env: &backend-env
+  # ── Identity of this deployment ──────────────────────────────────────────────
+  TLX_ENV: ${TLX_ENV:-development}
+  LOG_FORMAT: json
+  SERVICE_NAME: truthlens
+  # ── Connections (internal network only; no host port is published) ───────────
+  DATABASE_URL: "postgresql+psycopg://tlx_app:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set — generate one with `openssl rand -hex 24`}@postgres:5432/truthlens"
+  REDIS_URL: "redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set — generate one with `openssl rand -hex 24`}@redis:6379/0"
+  DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+  # ── Secrets. Left empty in development, where config.py generates EPHEMERAL values and logs a
+  #    warning saying so. In production an empty value is a hard startup failure, not a fallback —
+  #    that asymmetry is deliberate (fail closed rather than serve with a guessable key).
+  SECRET_KEY: ${SECRET_KEY:-}
+  SIGNED_URL_KEY: ${SIGNED_URL_KEY:-}
+  # ── Evidence storage. All four roots live under the single encrypted mount, are absolute, and do
+  #    not overlap (config.py refuses to start otherwise). NGINX_DOC_ROOT is NOT under this mount:
+  #    a web root that reached the evidence tree would serve originals with no session, no
+  #    capability check and no signed URL.
+  EVIDENCE_MOUNT_POINT: /evidence
+  EVIDENCE_ROOT: /evidence/originals
+  DERIVATIVES_ROOT: /evidence/derivatives
+  INTAKE_ROOT: /evidence/intake
+  QUARANTINE_ROOT: /evidence/quarantine
+  NGINX_DOC_ROOT: /usr/share/nginx/html
+  STORAGE_BACKEND: filesystem
+  # Disk/volume-level encryption only; the application performs no envelope encryption (ADR-0006).
+  EVIDENCE_ENCRYPTION: disabled
+  # ── Upload cap. nginx's client_max_body_size must be >= this (DEPLOYMENT_GUIDE troubleshooting:
+  #    "Uploads 413 → nginx body cap < app cap").
+  MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-4294967296}
+  # ── AI. Every gate closed by default; opening them is an audited administrator action
+  #    (ADR-0007, ADR-0021). There is no automatic cloud fallback under any configuration.
+  LLM_PROVIDER: local
+  ENABLE_EXTERNAL_AI: "false"
+  LLM_ALLOW_EXTERNAL_EGRESS: "false"
+  LLM_EGRESS_CONFIRMATION_REQUIRED: "true"
+  ENABLE_EXTERNAL_ENRICHMENT: "false"
+  ALLOW_MODEL_DOWNLOAD: "false"
+  # ── Hard-disabled in EVERY environment, including development (ADR-0013).
+  ALPR_ALLOW_REGISTRY_LOOKUP: "false"
+  # ── Retention has NO default. Unset means retention jobs delete nothing and the admin dashboard
+  #    warns persistently; the owner sets it on legal advice (ADR-0020).
+  RETENTION_STATUTORY_DAYS: ${RETENTION_STATUTORY_DAYS:-}
+
+services:
+  # ── The only service that publishes ports ────────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine          # pin by digest before production — see the note above
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/truthlens.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    networks: [tlxnet]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/nginx-health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   api:
-    build: {context: ../../, dockerfile: infra/docker/api.Dockerfile}
+    build:
+      context: ../../
+      dockerfile: infra/docker/api.Dockerfile
+    restart: unless-stopped
+    # No `ports:` — internal only. Use `docker compose exec api ...` to reach it.
     environment:
-      TLX_DATABASE_URL: postgresql+psycopg://tlx:tlx_dev_only@postgres:5432/truthlens
-      TLX_REDIS_URL: redis://redis:6379/0
-      TLX_ENVIRONMENT: development
-      TLX_SECRET_KEY: ${TLX_SECRET_KEY:-dev-only-change-me}
+      <<: *backend-env
+      API_HOST: 0.0.0.0               # binds inside the container; nothing is published to the host
+      API_PORT: "8000"
+      # Must match the tlxnet subnet below: only the proxy may supply forwarded headers, or a client
+      # could write a spoofed source address into the audit log.
+      FORWARDED_ALLOW_IPS: 172.28.0.0/24
+    volumes:
+      - evidence:/evidence
+      # No ./scripts mount: the LUKS2 preflight and key-custody scripts land with the milestone that
+      # needs them. Mounting a directory that does not exist yet would have Docker create an empty
+      # one, so the stack would look wired up while providing nothing.
     depends_on:
-      postgres: {condition: service_healthy}
-      redis: {condition: service_healthy}
-    ports: ["8000:8000"]
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [tlxnet]
+    healthcheck:
+      # Liveness, not readiness: a restart must not be triggered by a dependency being briefly down.
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz',timeout=2)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   frontend:
-    build: {context: ../../, dockerfile: infra/docker/frontend.Dockerfile}
+    build:
+      context: ../../
+      dockerfile: infra/docker/frontend.Dockerfile
+    restart: unless-stopped
+    # No `ports:` — nginx routes to it internally. NEXT_PUBLIC_API_BASE stays RELATIVE so the
+    # browser talks to the same origin and never needs to know the API's address.
+    environment:
+      NEXT_PUBLIC_API_BASE: ""
     depends_on: [api]
-    ports: ["3000:3000"]
+    networks: [tlxnet]
+
+  postgres:
+    image: pgvector/pgvector:pg16     # pin by digest before production
+    restart: unless-stopped
+    # No `ports:` — DEPLOYMENT_GUIDE is explicit that the database is never published.
+    environment:
+      POSTGRES_DB: truthlens
+      POSTGRES_USER: tlx
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # No initdb mount yet. The least-privilege roles DATABASE_DESIGN specifies (tlx_app with no DDL
+      # rights, tlx_migrator with them) are created by the M2 migration baseline, not by a shell
+      # script that would drift from it. Until then the stack runs as the bootstrap superuser, which
+      # is acceptable for a supervised development bring-up and is NOT acceptable in production.
+    networks: [tlxnet]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tlx -d truthlens"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    # ⚠️ Do NOT bump to redis:8 or redis:7.3 — the licence changed to RSALv2/SSPLv1 with an AGPLv3
+    # option (ADR-0022). A CI gate fails the build on any such reference. The permissive fork to
+    # evaluate if an upgrade ever becomes unavoidable is Valkey (BSD-3).
+    image: redis:7.2-alpine           # pin by digest before production
+    restart: unless-stopped
+    # No `ports:` — internal only.
+    # AOF for broker durability; noeviction because Redis is a broker here and silently dropping a
+    # queued task would lose work on an evidence pipeline.
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory-policy
+      - noeviction
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+    volumes:
+      - redis_data:/data
+    networks: [tlxnet]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+networks:
+  tlxnet:
+    driver: bridge
+    ipam:
+      config:
+        # Fixed subnet so FORWARDED_ALLOW_IPS in the api service can name exactly who is allowed to
+        # supply forwarded headers.
+        - subnet: 172.28.0.0/24
 
 volumes:
   postgres_data:
   redis_data:
+  # In production this is a bind mount onto the LUKS2 volume at /srv/truthlens, not a Docker-managed
+  # volume — see BACKUP_RECOVERY. A named volume is used here so the stack is runnable for development.
+  evidence:

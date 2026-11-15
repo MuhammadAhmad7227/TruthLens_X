@@ -39,7 +39,7 @@ single-host deployment.
 ## Alternatives considered
 | Option | Verdict |
 |---|---|
-| Application-level envelope encryption (per-object DEK wrapped by a KEK) | **Rejected for v1** by the owner — adds a second key-loss catastrophe, key-escrow design, and rotation complexity, without protecting against the dominant threat (a running-system compromise defeats both schemes equally) |
+| Application-level envelope encryption (per-object DEK wrapped by a KEK) | **Rejected for v1** by the owner — adds a second catastrophic way to lose the key, an escrow design, and rotation complexity, without protecting against the dominant threat (a running-system compromise defeats both schemes equally) |
 | Both LUKS2 **and** envelope encryption | Rejected for v1 — defence in depth here mostly multiplies key-custody risk |
 | No encryption at rest, rely on physical security | **Rejected** — unacceptable for evidence media and for backup media that leaves the building |
 | Filesystem-level encryption (fscrypt) instead of LUKS2 | Rejected — per-directory keys complicate custody; LUKS2 protects swap, journals and deleted blocks too |

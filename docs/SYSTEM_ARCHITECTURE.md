@@ -546,7 +546,7 @@ Rules:
 
 **Explicit non-decision flagged for approval:** whether to add application-level envelope
 encryption of originals (AES-256-GCM with per-object DEKs wrapped by a KMS/env KEK). It protects
-against disk theft but adds a key-loss = evidence-loss failure mode. See **D-006**.
+against disk theft but adds a failure mode where losing the key loses the evidence. See **D-006**.
 
 ---
 

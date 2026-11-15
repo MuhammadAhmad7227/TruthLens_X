@@ -88,7 +88,8 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-.venv/
+# Match .venv, .venv-m1, .venv-<milestone> etc.
+.venv*
 venv/
 env/
 ENV/

@@ -2,17 +2,30 @@
 
 **TruthLens X** — an AI-powered digital forensics and evidence intelligence platform.
 
-> ## ✅ Architecture ratified · 🔵 Milestone M1 approved · **No application code yet**
+> ## ✅ Architecture ratified · 🔨 Milestone M1 (foundation) in progress
 >
-> **M0** (architecture) and **M0.5** (decision ratification) are complete. **M1 foundation is scaffolded on this branch; runtime validation remains pending on a host/CI runner.** All 20 architectural
+> **M0** (architecture) and **M0.5** (decision ratification) are complete. All 20 architectural
 > decisions were approved by the project owner on 2026-11-10 and are recorded as **23 Architecture
 > Decision Records** in [docs/adr/](./docs/adr/README.md).
 >
-> Nothing in this repository is functional yet. There is no backend, no frontend, no database and no
-> Docker stack — only the specification for them, which is deliberate: the owner's instruction is to
-> complete the documentation and licensing analysis **before** implementation.
+> **What exists today (M1, in progress):**
 >
-> 👉 Start with [docs/DECISIONS.md §3](./docs/DECISIONS.md) (what was decided) or
+> * **Backend foundation — implemented and tested.** `backend/app/core/` contains fail-closed
+>   configuration validation, a redacting structured-logging pipeline, the RFC 9457 error model,
+>   request-context and security-header middleware, and liveness/readiness probes.
+>   **329 tests pass**; `ruff check`, `ruff format --check` and `mypy --strict` are clean.
+> * **Frontend, compose and CI scaffolding** exist but are **not yet validated at runtime** — no
+>   Docker daemon, PostgreSQL or Redis server was available where they were written.
+>
+> **What does not exist yet:** no database schema or migrations, no authentication, no cases, and
+> **no forensic capability of any kind**. Evidence ingest begins at M5. Nothing here analyses
+> evidence, and no endpoint returns investigative findings.
+>
+> Not claimed, because it was not done: `docker compose` validation, any database/Redis integration
+> test, and end-to-end runs. See [docs/IMPLEMENTATION_ROADMAP.md](./docs/IMPLEMENTATION_ROADMAP.md)
+> for exit criteria.
+>
+> 👉 Start with [docs/DECISIONS.md](./docs/DECISIONS.md) (what was decided) or
 > [docs/adr/README.md](./docs/adr/README.md) (why, and how to reverse each one).
 
 ---
@@ -151,24 +164,38 @@ cracking, speaker identification, external registry lookups) are listed in
 
 ## Repository layout
 
-The M1 foundation now contains backend/frontend/compose/CI scaffolding. Forensic and domain feature code remains intentionally absent. The full planned tree — `backend/`, `ai_services/`,
-`frontend/`, `infra/`, `tools/` — is specified in
-[docs/SYSTEM_ARCHITECTURE.md §4](./docs/SYSTEM_ARCHITECTURE.md#4-repository-structure) and will be
-scaffolded in milestone M1.
+The M1 foundation contains the backend core, plus frontend, compose and CI scaffolding. Forensic and
+domain feature code remains intentionally absent. The full planned tree — including `ai_services/`
+and `tools/` — is specified in
+[docs/SYSTEM_ARCHITECTURE.md §4](./docs/SYSTEM_ARCHITECTURE.md#4-repository-structure) and is filled
+in by later milestones.
 
 ```
 TruthLens_X/
-├── README.md          ← you are here
-├── .env.example       ← every environment variable, documented, no real values
-├── .gitignore         ← evidence files and model weights are excluded by design
-└── docs/              ← the complete M0 specification set (9 documents)
+├── README.md              ← you are here
+├── .env.example           ← every environment variable, documented, no real values
+├── .gitignore             ← evidence files, secrets and model weights excluded by design
+├── backend/
+│   ├── app/
+│   │   ├── core/          ← config, logging, errors, middleware, health  (M1 — implemented)
+│   │   ├── api/v1/        ← /healthz, /readyz, /api/v1/status           (M1 — implemented)
+│   │   └── main.py        ← create_app() factory, fail-closed startup    (M1 — implemented)
+│   ├── migrations/        ← Alembic (M2)
+│   └── tests/
+│       ├── unit/          ← config policy, redaction, error model, health, middleware
+│       ├── contract/      ← the M1 endpoints, including the OpenAPI guarantees
+│       └── security/      ← cross-module leakage assertions
+├── frontend/              ← Next.js scaffold (not yet validated at runtime)
+├── infra/                 ← compose + Dockerfiles (not yet validated at runtime)
+├── .github/workflows/     ← backend CI, frontend CI, security scanning
+└── docs/                  ← the M0 specification set + ADRs, audits and runbooks
 ```
 
 ---
 
 ## Roadmap at a glance
 
-`M0 ✅ docs · M0.5 ✅ ratification` → `M1 foundation` → `M2 database` → `M3 auth/RBAC` → `M4 cases` →
+`M0 ✅ docs · M0.5 ✅ ratification` → **`M1 foundation 🔨 in progress`** → `M2 database` → `M3 auth/RBAC` → `M4 cases` →
 **`M5 evidence ingest & integrity`** → **`M6 chain of custody`** → `M7 async platform` →
 `M8 metadata` → `M9 image` → `M10 document` → `M11 audio` → `M12 video` → `M13 detection/ALPR` →
 `M14 deepfake indicators` → `M15 comparison/similarity` → `M16 graph/timeline` → `M17 AI assistant` →

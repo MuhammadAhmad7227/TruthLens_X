@@ -1,0 +1,71 @@
+# Build context is the repository ROOT (infra/docker/api.Dockerfile is built with `context: ../../`),
+# so everything not excluded here is uploaded to the Docker daemon on every build.
+#
+# The first two entries are the ones that matter most. Without them a build on a deployment host
+# would attempt to send the entire evidence volume — potentially tens of terabytes — to the daemon,
+# and would then bake evidence content into an image layer where it could be extracted by anyone who
+# can pull the image. That is a disclosure path, not just a slow build.
+
+# ── Evidence and operator data: NEVER in a build context ──────────────────────
+srv/
+evidence/
+*.evidence
+backups/
+*.restic
+*.luks
+models/
+# Note: there is deliberately no `!models/.gitkeep` re-inclusion here. Once a parent directory is
+# excluded, neither Docker nor git can re-include a path inside it, so writing one would be a
+# comment that promises something the file does not do.
+
+# ── Secrets ───────────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.jks
+*.keystore
+secrets/
+**/tls/
+
+# ── Version control and CI ────────────────────────────────────────────────────
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# ── Python build artifacts and virtualenvs ────────────────────────────────────
+.venv*/
+venv/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# ── Node / frontend build artifacts (the frontend image builds these itself) ──
+node_modules/
+**/node_modules/
+.next/
+out/
+dist/
+.turbo/
+
+# ── Documentation and tooling not needed at runtime ───────────────────────────
+docs/
+*.md
+!backend/README.md
+tools/
+
+# ── Editor / OS noise ─────────────────────────────────────────────────────────
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

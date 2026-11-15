@@ -102,7 +102,7 @@ licence/SBOM surface small).
 ### 3.3 Model-agnostic inference for forensic engines
 
 The same adapter pattern is used for **all** model inference (ASR, detection, OCR, embeddings), not
-just the chat assistant — see SYSTEM_ARCHITECTURE §9 and the model registry. The distinction that
+just the chat assistant — see SYSTEM_ARCHITECTURE §9 and the model registry defined in **§15**. The distinction that
 matters for egress: forensic engines run **in-process on the worker** and never send data anywhere.
 Only the `external` chat adapter can cause egress. That asymmetry is deliberate and is the reason the
 egress controls in §4 are scoped to the assistant.
@@ -499,5 +499,52 @@ refusal-without-inference path (§11.3).
 
 ---
 
-*End of AI_ARCHITECTURE.md v1.0.0. No assistant code exists yet; the adapter interface and
-fail-closed configuration land in M1, the implementation in M17.*
+## 15. Model artifact registry (`models.lock.json`) — fail-closed provenance
+
+Every model artifact the platform runs is described by a registry entry, and the registry is the
+**authority**: an artifact that is not in it, or whose record is incomplete, does not run. This
+exists because the licence audit found that a permissive Python package does not make its *weights*
+permissive (finding **L-2**), and because three weight licences could not be verified at all
+(**L-3**, **L-5**, **L-6**).
+
+```
+models/                                  # 0555, read-only mount
+├── <family>/<version>/
+│   ├── model.bin
+│   └── manifest.json
+└── models.lock.json                     # the authority — see below
+```
+
+`models.lock.json` records, per artifact:
+
+| Field | Purpose |
+|---|---|
+| `sha256` | Integrity |
+| `code_licence` | Licence of the code that runs the model |
+| `weights_licence` | Licence of the weights **themselves** — audited separately ([ADR-0001](./adr/ADR-0001-permissive-default-dependency-set.md)) |
+| `weights_licence_source` | The URL or document the licence was read from |
+| `weights_licence_verified_at` | When it was verified — a licence can change |
+| `commercial_use_cleared` | Explicit boolean, never inferred |
+| `legal_review_id` | Links to the review that cleared it |
+| `allow_fetch` | Whether automated fetching is permitted at all |
+
+**The loader refuses any artifact where `allow_fetch != true`, `weights_licence` is empty, or the
+SHA-256 does not match — fail closed, never fall back.** A model that cannot be verified is not
+substituted with a convenient alternative; the capability reports itself unavailable, and the UI
+says so rather than silently degrading.
+
+Registry rules:
+
+* Weights are **never committed to git**. CI uses a stub provider and tiny synthetic fixtures (RR-3).
+* Exactly one `is_default` per `(family, task)` — enforced by a partial unique index.
+* Artifacts are provisioned offline by `infra/scripts/fetch-models.sh` on a networked machine, then
+  copied in and hash-verified. `ALLOW_MODEL_DOWNLOAD=false` by default
+  ([ADR-0012](./adr/ADR-0012-data-residency-no-egress-by-default.md)).
+* **Only self-measured performance figures are ever displayed.** A benchmark from a paper is never
+  shown as though it described this deployment.
+
+---
+
+*End of AI_ARCHITECTURE.md v1.1.0. No assistant code exists yet; the adapter interface and
+fail-closed configuration land in M1, the implementation in M17, and the model registry loader with
+M13.*

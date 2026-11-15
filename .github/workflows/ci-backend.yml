@@ -1,14 +1,63 @@
-name: backend
+name: ci-backend
+
+# Runs on every push and pull request. The steps below are the same commands documented in
+# backend/README.md, so a contributor can reproduce a CI failure locally without guessing.
 on: [push, pull_request]
+
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults: {run: {working-directory: backend}}
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
-        with: {python-version: "3.11"}
-      - run: pip install -e '.[dev]'
-      - run: ruff check .
-      - run: mypy app
-      - run: pytest
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      # `[db]` is not optional here. sqlalchemy lives in that extra, and `mypy app` cannot
+      # type-check app/core/health.py without it — it fails with import-not-found. Installing the
+      # extra means mypy checks against the real sqlalchemy stubs rather than being told to ignore
+      # the module, which would blind it to every database call in the codebase.
+      # Upgrade the build tooling BEFORE installing and auditing. pip-audit scans the whole
+      # environment, and the setuptools a runner ships can carry known CVEs that have nothing to do
+      # with our dependency graph — that is exactly what happened on the first run of this workflow
+      # (7 advisories against setuptools 66.1.1). Upgrading fixes it honestly; `--ignore-vuln` would
+      # suppress a real finding in the build environment and every future one with it.
+      - name: Upgrade build tooling
+        run: pip install --upgrade pip setuptools wheel
+
+      - name: Install (dev + db extras)
+        run: pip install -e '.[dev,db]'
+
+      - name: Lint
+        run: ruff check .
+
+      # Formatting is checked, not applied: a commit that is unformatted is a review defect, and
+      # letting CI reformat silently would hide it.
+      - name: Format check
+        run: ruff format --check .
+
+      - name: Type check (strict)
+        run: mypy app tests
+
+      # Coverage floor (80%) is configured in pyproject.toml, so it is enforced here rather than
+      # restated as a flag that could drift from the config.
+      - name: Tests
+        run: pytest --cov=app --cov-report=term-missing
+
+      # The application factory must construct in a bare environment. This catches import-time
+      # breakage that pytest would miss, because pytest injects hermetic settings via conftest.
+      # No env vars are set, so this also proves the development defaults are self-sufficient
+      # (ephemeral secrets generated, warnings logged, no crash).
+      - name: Smoke — app factory constructs
+        run: python -c "from app.main import create_app; app = create_app(); print('routes:', len(app.routes))"
+
+      # No separate "OpenAPI carries no licence/contact" step: tests/contract/test_system_api.py
+      # already asserts it, and a second implementation of the same check in shell would drift from
+      # the test. The guarantee (ADR-0008 — the repository is deliberately unlicensed, so a generated
+      # schema must not imply a grant) is enforced once, in the suite above.

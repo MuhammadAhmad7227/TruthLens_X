@@ -76,8 +76,21 @@ Stable machine codes (never parsed from `title`):
 | 400 | `VALIDATION_ERROR` | body/query failed schema validation (`field_errors` populated) |
 | 400 | `UNSUPPORTED_EVIDENCE_TYPE` | pipeline not applicable to this item type |
 | 401 | `UNAUTHENTICATED` / `TOKEN_EXPIRED` / `MFA_REQUIRED` | |
-| 403 | `FORBIDDEN_ROLE` / `FORBIDDEN_CASE_ACCESS` / `FORBIDDEN_CAPABILITY` / `CASE_CLOSED` | deny-by-default ACL outcomes |
-| 404 | `NOT_FOUND` | also returned instead of 403 when existence itself must not leak |
+| 403 | `FORBIDDEN_ROLE` / `FORBIDDEN_CAPABILITY` / `CASE_CLOSED` / `LEGAL_HOLD` (423) | deny-by-default ACL outcomes where the resource's existence is already known to the caller |
+| 404 | `NOT_FOUND` | **also returned for case-access denial** — existence itself must not leak |
+
+> **⚠️ Corrected during ratification (conflict #4, [ADR-0004](adr/ADR-0004-single-organisation-capability-rbac.md)).**
+> This table originally listed `FORBIDDEN_CASE_ACCESS` under **403**, which contradicted
+> `SECURITY_ARCHITECTURE.md` §5.5 (a denial must not confirm that the case exists) **and** §9 (such
+> denials must be detectable for insider-threat alerting). Resolved in favour of security:
+>
+> * the HTTP status is **404** and the client-visible `error_code` is **`NOT_FOUND`**, so a denial is
+>   indistinguishable from a missing resource;
+> * the server separately records **`audit_reason = FORBIDDEN_CASE_ACCESS`** in the audit log, which
+>   is where the alerting requirement is satisfied.
+>
+> `FORBIDDEN_CASE_ACCESS` is therefore an **audit reason, not a client-facing error code.** It never
+> appears in a response body.
 | 409 | `EVIDENCE_INTEGRITY_MISMATCH` / `CONFLICT` / `IDEMPOTENCY_KEY_REUSED` / `INVALID_STATE_TRANSITION` | |
 | 413 | `PAYLOAD_TOO_LARGE` | exceeds `MAX_UPLOAD_BYTES` |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | magic bytes not in the allowlist |
