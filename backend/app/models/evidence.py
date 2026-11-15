@@ -81,7 +81,7 @@ if TYPE_CHECKING:
     from app.models.identity import User
     from app.models.reporting import ReportVersion
 
-__all__ = ["CustodyEvent", "Derivative", "EvidenceItem", "PhysicalObject"]
+__all__ = ["CustodyEvent", "Derivative", "EvidenceItem", "IntegrityCheck", "PhysicalObject"]
 
 #: §4.3: the genesis link of a custody chain is 64 zero characters, not NULL. A NULL ``prev_hash``
 #: would make "this is the first event" indistinguishable from "the chain was never computed", and
@@ -150,6 +150,8 @@ class PhysicalObject(Base, TimestampMixin):
 
     evidence_items: Mapped[list[EvidenceItem]] = relationship(back_populates="physical_object")
     first_ingested_by_user: Mapped[User | None] = relationship()
+    #: Every sweep that has ever re-hashed these bytes, oldest first by ``checked_at``.
+    integrity_checks: Mapped[list[IntegrityCheck]] = relationship(back_populates="physical_object")
 
     __table_args__ = (
         CheckConstraint(f"sha256 ~ '{HEX_SHA256_PATTERN}'", name="sha256_is_lowercase_hex"),
@@ -512,5 +514,112 @@ class Derivative(Base):
             "case_id",
             "kind",
             postgresql_where=text("status = 'stale'"),
+        ),
+    )
+
+
+class IntegrityCheck(Base):
+    """One re-hash of one stored object, and what it found (§8.4, EVID-07).
+
+    EVID-07 is mandatory: SHA-256 is re-verified on demand and on a scheduled sweep, and any mismatch
+    surfaces as a **critical integrity exception**. This table is the record of those sweeps. It
+    exists separately from ``evidence_items.integrity_status`` for the same reason a lab keeps every
+    reading and not just the latest one: the current status answers "is this item sound now", while
+    the history answers "when did it stop being sound" — and the second question is the one that
+    decides whether a mismatch is bit rot, a storage fault, or somebody with a mount point.
+
+    Append-only, per §10 (which also partitions it monthly and rolls it to cold storage after 24
+    months). A sweep result is an observation: editing one would be rewriting the platform's own
+    account of what it saw. Migration ``0003`` therefore revokes ``UPDATE``/``DELETE``/``TRUNCATE``
+    from the application roles, exactly as ``0001`` does for the custody and audit ledgers.
+
+    The shared ``integrity_status`` enum
+    ------------------------------------
+    ``result`` reuses the type ``evidence_items.integrity_status`` uses, so the two columns cannot
+    drift into different vocabularies for the same concept. One of that type's four values is not a
+    sweep outcome — ``unverified`` describes an item that has never been checked, and a row in this
+    table is by definition a check that ran — so a CHECK excludes it. Sharing an enum without saying
+    which of its values are legal here is how a column ends up holding a state its own table cannot
+    interpret.
+    """
+
+    __tablename__ = "integrity_checks"
+
+    #: UUIDv7: append-only and high-volume (a nightly sweep writes one row per stored object), so
+    #: time-ordered keys keep the primary index appending rather than scattering (§1.1).
+    id: Mapped[UUID] = mapped_column(
+        primary_key=True, default=uuid7, server_default=text("uuid_generate_v7()")
+    )
+    #: ``RESTRICT``. §12 permits destroying an object only with an administrator, a justification, a
+    #: second approver and an audit record — and the integrity history of a destroyed object is part
+    #: of what that approval was granted against. An object whose bytes once failed verification and
+    #: were then deleted, taking the failed row with them, is indistinguishable from tampering. §10
+    #: already gives these rows a lifecycle (cold storage after 24 months), so the approved path
+    #: archives them rather than cascading them away.
+    physical_object_id: Mapped[UUID] = mapped_column(
+        ForeignKey("physical_objects.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: When the sweep read the bytes. No ``created_at`` beside it: this is the observation's time, and
+    #: a second insert-time column would invite code to read the wrong one — the reasoning
+    #: ``custody_events`` gives for the same omission.
+    checked_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    #: The digest believed true when the sweep ran, copied from ``physical_objects.sha256`` rather
+    #: than joined to it: the object's row is write-once, but a check must still record the value it
+    #: compared against, or "verified" is a claim with nothing to check it against.
+    expected_sha256: Mapped[str] = mapped_column(SHA256, nullable=False)
+    #: NULL only when the bytes could not be read at all — which is what ``result = 'missing'`` means,
+    #: and the CHECK below makes the two say the same thing.
+    actual_sha256: Mapped[str | None] = mapped_column(SHA256, nullable=True, default=None)
+    result: Mapped[IntegrityStatus] = mapped_column(native_enum(IntegrityStatus), nullable=False)
+    #: The sweep job, when there was one. ``SET NULL`` like the other artifact-to-job references
+    #: (``derivatives.produced_by_job_id``, ``report_versions.job_id``): the observation is complete
+    #: without it — object, time, expected, actual, result — and coupling job retention to a table
+    #: §10 keeps for 24 months would fight both. NULL is also the honest value for an on-demand check
+    #: that no job produced.
+    job_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("analysis_jobs.id", ondelete="SET NULL"), nullable=True, default=None
+    )
+
+    physical_object: Mapped[PhysicalObject] = relationship(back_populates="integrity_checks")
+    job: Mapped[AnalysisJob | None] = relationship()
+
+    __table_args__ = (
+        # This object's integrity history, in order — the first question after a mismatch.
+        Index("ix_integrity_checks_object_time", "physical_object_id", "checked_at"),
+        # EVID-07's exception queue: every sweep failure the platform must surface, without scanning
+        # 24 months of clean results to find them.
+        Index(
+            "ix_integrity_checks_exceptions",
+            "checked_at",
+            postgresql_where=text("result IN ('mismatch', 'missing')"),
+        ),
+        Index("ix_integrity_checks_result", "result"),
+        CheckConstraint(
+            f"expected_sha256 ~ '{HEX_SHA256_PATTERN}'", name="expected_sha256_is_lowercase_hex"
+        ),
+        CheckConstraint(
+            f"actual_sha256 IS NULL OR actual_sha256 ~ '{HEX_SHA256_PATTERN}'",
+            name="actual_sha256_is_lowercase_hex",
+        ),
+        # `unverified` belongs to an item nobody has checked yet. A row here is a check that ran, so
+        # the value would be a result that says nothing happened.
+        CheckConstraint("result <> 'unverified'", name="result_is_an_outcome"),
+        # A check that read the bytes records what it read; one that could not says `missing`. Without
+        # this, NULL in `actual_sha256` is ambiguous between "not readable" and "not recorded".
+        CheckConstraint(
+            "actual_sha256 IS NOT NULL OR result = 'missing'",
+            name="a_digest_was_read_unless_missing",
+        ),
+        # The two rows that would otherwise be worth forging. A `verified` result holding two
+        # different digests contradicts itself, and a `mismatch` holding two equal ones reports a
+        # failure that did not happen — which is a false integrity exception, and EVID-07 makes that
+        # a critical alert somebody will act on.
+        CheckConstraint(
+            "result <> 'verified' OR actual_sha256 = expected_sha256",
+            name="verified_means_the_digests_agree",
+        ),
+        CheckConstraint(
+            "result <> 'mismatch' OR actual_sha256 IS DISTINCT FROM expected_sha256",
+            name="mismatch_means_the_digests_differ",
         ),
     )

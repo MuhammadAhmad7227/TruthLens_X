@@ -17,14 +17,17 @@ So: add a model module, add its import here. There is no lazy-loading cleverness
 from __future__ import annotations
 
 from app.db.base import Base
-from app.models.analysis import AnalysisJob, AnalysisResult
+from app.models.analysis import AnalysisJob, AnalysisResult, LimitationStatement
+from app.models.assistant import AIConversation, AIMessage
 from app.models.audit import AuditLog
 from app.models.cases import DEFAULT_ORGANISATION_ID, Case, CaseMember, CaseNote, Notification
 from app.models.enums import (
+    AIMessageStatus,
     ArtifactStatus,
     AuditResult,
     CaseRole,
     CaseStatus,
+    ChatRole,
     CustodyEventType,
     DerivativeKind,
     EncState,
@@ -46,9 +49,25 @@ from app.models.evidence import (
     CustodyEvent,
     Derivative,
     EvidenceItem,
+    IntegrityCheck,
     PhysicalObject,
 )
-from app.models.identity import Organisation, Permission, Role, RolePermission, User, UserRole
+from app.models.identity import (
+    Organisation,
+    Permission,
+    Role,
+    RolePermission,
+    User,
+    UserRole,
+    UserSession,
+)
+from app.models.platform import (
+    RETENTION_ACTIONS,
+    RETENTION_SCOPES,
+    FeatureFlag,
+    RetentionPolicy,
+    SystemSetting,
+)
 from app.models.registry import AIModel, AIProviderSettings
 from app.models.reporting import Report, ReportVersion
 from app.models.types import HEX_SHA256_PATTERN
@@ -62,6 +81,11 @@ __all__ = [
     "DEFAULT_ORGANISATION_ID",
     "GENESIS_PREV_HASH",
     "HEX_SHA256_PATTERN",
+    "RETENTION_ACTIONS",
+    "RETENTION_SCOPES",
+    "AIConversation",
+    "AIMessage",
+    "AIMessageStatus",
     "AIModel",
     "AIProviderSettings",
     "AnalysisJob",
@@ -75,6 +99,7 @@ __all__ = [
     "CaseNote",
     "CaseRole",
     "CaseStatus",
+    "ChatRole",
     "CustodyEvent",
     "CustodyEventType",
     "Derivative",
@@ -83,9 +108,12 @@ __all__ = [
     "EvidenceItem",
     "EvidenceStatus",
     "EvidenceType",
+    "FeatureFlag",
     "GlobalRole",
+    "IntegrityCheck",
     "IntegrityStatus",
     "JobStatus",
+    "LimitationStatement",
     "ModelStatus",
     "Notification",
     "Organisation",
@@ -95,12 +123,15 @@ __all__ = [
     "Report",
     "ReportStatus",
     "ReportVersion",
+    "RetentionPolicy",
     "Role",
     "RolePermission",
     "Sensitivity",
     "SourceType",
+    "SystemSetting",
     "User",
     "UserRole",
+    "UserSession",
     "UserStatus",
     "VerificationStatus",
     "metadata",

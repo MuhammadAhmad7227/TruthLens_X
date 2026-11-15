@@ -59,7 +59,6 @@ from app.models.identity import User
 from tests.db.conftest import (
     alembic_downgrade,
     alembic_stamp,
-    alembic_upgrade,
     disposable_database,
     one,
     scalars,
@@ -71,7 +70,11 @@ UNREACHABLE_URL: Final = "postgresql+psycopg://tlx_probe:not-a-real-password@127
 
 #: The revision at the tip of the graph, spelled out so a stale expectation fails loudly here rather
 #: than being quietly inherited from whatever the scripts happen to contain.
-HEAD_REVISION: Final = "0002"
+HEAD_REVISION: Final = "0004"
+
+#: The revision before it. A test that puts a database "one behind" has to name the revision it means:
+#: stamping an older one changes how many revisions are pending, which is the number under assertion.
+PREVIOUS_REVISION: Final = "0003"
 
 
 @pytest.fixture(autouse=True)
@@ -752,17 +755,21 @@ class TestVerifySchemaHeadAgainstAServer:
     ) -> None:
         """The detail names the revisions and the command, because this is read during a deployment
         by somebody who needs the next action, not a category label."""
-        alembic_stamp(scratch_database, "0001")
+        alembic_stamp(scratch_database, PREVIOUS_REVISION)
         try:
             with _configured(scratch_database):
                 status = migrations_module.verify_schema_head()
             assert status.state == "behind"
-            assert status.applied == "0001"
+            assert status.applied == PREVIOUS_REVISION
             assert status.head == HEAD_REVISION
             assert "1 revision(s) to apply" in status.detail
             assert "alembic upgrade head" in status.detail
         finally:
-            alembic_upgrade(scratch_database)
+            # Stamp back, do not upgrade: this test only ever touched the version table, and the
+            # schema already holds every revision. Running `upgrade head` from a stamped-behind
+            # state would re-apply a revision to a database that already has its tables, and fail
+            # on a relation that already exists — a failure in the restore, not in the subject.
+            alembic_stamp(scratch_database, HEAD_REVISION)
 
     def test_a_revision_this_build_does_not_know_is_divergence_not_progress(
         self, scratch_database: str

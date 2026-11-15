@@ -53,7 +53,9 @@ from sqlalchemy.dialects.postgresql import INET
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, SoftDeleteMixin, TimestampMixin, UTCDateTime
+from app.db.uuid7 import uuid7
 from app.models.enums import GlobalRole, PasswordAlgorithm, UserStatus, native_enum
+from app.models.types import HEX_SHA256_PATTERN, SHA256
 
 if TYPE_CHECKING:
     # Relationship targets that live in sibling domain modules. Imported for the type checker only:
@@ -62,7 +64,15 @@ if TYPE_CHECKING:
     # mapper-configuration time, which is after ``app.models`` has imported every module.
     from app.models.cases import Case, CaseMember, Notification
 
-__all__ = ["Organisation", "Permission", "Role", "RolePermission", "User", "UserRole"]
+__all__ = [
+    "Organisation",
+    "Permission",
+    "Role",
+    "RolePermission",
+    "User",
+    "UserRole",
+    "UserSession",
+]
 
 
 class User(Base, TimestampMixin, SoftDeleteMixin):
@@ -137,6 +147,10 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     notifications: Mapped[list[Notification]] = relationship(
         back_populates="user", foreign_keys="[Notification.user_id]"
     )
+    #: Login sessions. No cascade: ``user_sessions.user_id`` is ``ON DELETE RESTRICT`` (§3.2), so an
+    #: ORM-level cascade would contradict the database and fail at flush time instead of at delete
+    #: time. Users are soft-deleted anyway — see the class docstring.
+    sessions: Mapped[list[UserSession]] = relationship(back_populates="user")
 
     __table_args__ = (
         Index("uq_users_email_lower", text("lower(email)"), unique=True),
@@ -334,4 +348,100 @@ class UserRole(Base, TimestampMixin):
             "revoked_at IS NULL OR revoked_by IS NOT NULL",
             name="revocation_names_an_actor",
         ),
+    )
+
+
+class UserSession(Base):
+    """One issued refresh token, and the family it belongs to (§3.2).
+
+    This is the durable half of authentication state. ``SECURITY_ARCHITECTURE`` keeps the *fast*
+    half in Redis — an access-token ``jti`` denylist with a matching TTL — and §3.2 says so
+    explicitly: Redis answers "is this token revoked right now" on every request, Postgres is the
+    record that survives a Redis restart and the one an investigation reads.
+
+    Nothing here can produce a usable credential. ``refresh_token_hash`` holds a SHA-256 digest of
+    the token, so a database read — a stolen backup, an over-broad SELECT in a report, a
+    ``tlx_auditor`` session — yields no token to replay. The token itself exists only in the
+    response that issued it and in the client that received it.
+
+    Token families
+    --------------
+    ``family_id`` is what makes rotation detect reuse (M3 task 3.4). Each refresh issues a new token
+    in the same family and revokes the old one; presenting an *already-rotated* token means somebody
+    is replaying a credential the legitimate client handed back, so the whole family is revoked —
+    the attacker's copy and the user's current session together. That is a deliberate denial of
+    service against the real user, and it is the correct trade: a stolen refresh token that keeps
+    working silently is worse than a forced re-login.
+
+    The revocation therefore has no human actor, which is why there is no ``revoked_by`` column and
+    no ``revocation_names_an_actor`` CHECK here — unlike ``user_roles`` and ``case_members``, where a
+    revocation is always somebody's decision. Who detected the reuse is an ``audit_logs`` row.
+
+    Timestamps
+    ----------
+    No ``TimestampMixin``: ``issued_at`` *is* this row's creation time, and a second insert-time
+    column would invite code to use the wrong one — the same reasoning ``custody_events`` gives for
+    omitting ``created_at``. There is no ``updated_at`` either, because the only update this row ever
+    receives is revocation, and ``revoked_at`` records it more precisely than a generic timestamp
+    would.
+    """
+
+    __tablename__ = "user_sessions"
+
+    #: UUIDv7 rather than ``gen_random_uuid()``. This is a high-volume table — one row per login per
+    #: device, never reused — so time-ordered keys keep its primary index appending at the right-hand
+    #: edge instead of scattering (§1.1). ADR-0009's disclosure concern does not apply: the id is
+    #: never handed to a client. The credential is the token, and what the database stores of it is a
+    #: digest.
+    id: Mapped[UUID] = mapped_column(
+        primary_key=True, default=uuid7, server_default=text("uuid_generate_v7()")
+    )
+    #: ``RESTRICT``, per §3.2 — not ``CASCADE``. Deleting a user must not erase the record that they
+    #: authenticated, from where, with what client: that history is exactly what an investigation
+    #: into a compromised account asks for, and §12 keeps user PII deactivated rather than erased
+    #: while cases reference the user.
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: Digest, never the token. ``char(64)`` + the lowercase-hex CHECK rather than §3.2's literal
+    #: ``text``, for the reason ``app.models.types`` gives: a variable-length digest column lets a
+    #: truncated value pass a length check nobody wrote, and this one is a security anchor.
+    refresh_token_hash: Mapped[str] = mapped_column(SHA256, nullable=False, unique=True)
+    #: Groups every rotation descended from one login. Indexed non-partially on purpose: reuse
+    #: detection has to find the *revoked* token that was replayed, not just the live ones.
+    family_id: Mapped[UUID] = mapped_column(nullable=False, default=uuid4)
+    issued_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, default=None)
+    #: ``inet``, not ``text`` — the same choice ``users.last_login_ip`` makes: PostgreSQL validates
+    #: the literal, and "every session from this subnet" is a query an incident response actually
+    #: runs.
+    ip: Mapped[str | None] = mapped_column(INET, nullable=True, default=None)
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+
+    user: Mapped[User] = relationship(back_populates="sessions")
+
+    __table_args__ = (
+        # "This user's sessions, newest first" — the account-security page and the revoke-all action.
+        Index(
+            "ix_user_sessions_user_active", "user_id", postgresql_where=text("revoked_at IS NULL")
+        ),
+        Index("ix_user_sessions_family", "family_id"),
+        CheckConstraint(
+            "expires_at > issued_at",
+            name="expiry_after_issue",
+        ),
+        CheckConstraint(
+            "revoked_at IS NULL OR revoked_at >= issued_at",
+            name="revocation_after_issue",
+        ),
+        CheckConstraint(
+            f"refresh_token_hash ~ '{HEX_SHA256_PATTERN}'",
+            name="refresh_token_hash_is_lowercase_hex",
+        ),
+        # There is deliberately no upper bound tying revoked_at to expires_at. Revoking a session
+        # that has already expired is a legitimate housekeeping act — a sweep that marks dead rows
+        # revoked so the active-session query stops considering them — and a constraint forbidding
+        # it would turn that sweep into a stream of failures. "Is this session usable?" is answered
+        # by revoked_at IS NULL AND expires_at > now(), which is one predicate, not an ambiguity.
     )

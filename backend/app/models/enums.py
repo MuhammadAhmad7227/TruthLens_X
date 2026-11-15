@@ -28,10 +28,12 @@ from enum import StrEnum, unique
 from sqlalchemy import Enum as SAEnum
 
 __all__ = [
+    "AIMessageStatus",
     "ArtifactStatus",
     "AuditResult",
     "CaseRole",
     "CaseStatus",
+    "ChatRole",
     "CustodyEventType",
     "DerivativeKind",
     "EncState",
@@ -338,3 +340,44 @@ class AuditResult(StrEnum):
     SUCCESS = "success"
     FAILURE = "failure"
     DENIED = "denied"
+
+
+# ── AI assistant (§8.2) ────────────────────────────────────────────────────────────────────────
+
+
+@unique
+class ChatRole(StrEnum):
+    """Who is speaking in an assistant turn (§9 names the type ``chat_role``).
+
+    Deliberately a native enum, and deliberately four values. A message's role is the one field the
+    citation rule in §8.2 keys on — ``role <> 'assistant' OR …`` — so a role that could be spelled
+    freely would make that constraint advisory. ``tool`` is included because §9 lists it: a
+    retrieval result is a turn in the transcript, and dropping it would push tool output into a
+    ``user`` message, where the citation check would then demand citations for a chunk listing.
+    """
+
+    SYSTEM = "system"
+    USER = "user"
+    ASSISTANT = "assistant"
+    TOOL = "tool"
+
+
+@unique
+class AIMessageStatus(StrEnum):
+    """Outcome of one assistant turn (§8.2: ``succeeded``, ``failed``, ``refused``).
+
+    ``refused`` is its own value rather than a flavour of ``failed``, for the same reason
+    ``AuditResult.denied`` is: a guardrail that declined to answer is the system working, and an
+    operator counting refusals is measuring guardrail behaviour, not outages. Collapsing the two
+    would make "the assistant is broken" and "the assistant declined" the same number.
+
+    Not in §9's canonical list, which is recorded in ``migrations/README.md``: §8.2 specifies these
+    three values in prose without declaring a type, so the type is named here (``ai_message_status``)
+    rather than borrowed. ``invocation_status`` was considered and rejected — it carries ``partial``,
+    which describes a forensic engine that produced some indicators, and a chat turn is either
+    answered, not answered, or declined.
+    """
+
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    REFUSED = "refused"

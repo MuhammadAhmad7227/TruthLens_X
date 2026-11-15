@@ -39,6 +39,7 @@ index locality, not sequence.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from decimal import Decimal
 
 from sqlalchemy import CHAR, Numeric, Text
@@ -51,6 +52,7 @@ __all__ = [
     "SHA256",
     "confidence_numeric",
     "score_numeric",
+    "sql_value_list",
     "text_array",
 ]
 
@@ -86,6 +88,22 @@ def text_array() -> ARRAY[Text]:
     # its class or instance form. The call is the documented usage. mypy's `warn_unused_ignores`
     # (on, via strict) means this line fails again the moment a release fixes the stub.
     return ARRAY(Text())  # type: ignore[arg-type]
+
+
+def sql_value_list(values: Iterable[str]) -> str:
+    """Render a Python sequence of strings as a SQL literal list: ``('a', 'b')``.
+
+    Exists for the same reason ``HEX_SHA256_PATTERN`` is a constant rather than six hand-typed
+    copies: a vocabulary that is written once in Python and once inside a CHECK constraint's SQL text
+    is a vocabulary that can differ between the two, and the difference is invisible until a row is
+    refused that should have been accepted. Tests and services import the tuple; the CHECK is built
+    from it.
+
+    Quotes are doubled rather than escaped with a backslash because ``standard_conforming_strings``
+    is on by default in PostgreSQL, where a backslash in a string literal is a literal backslash.
+    """
+    quoted = ", ".join("'" + value.replace("'", "''") + "'" for value in values)
+    return f"({quoted})"
 
 
 def score_numeric() -> Numeric[Decimal]:
