@@ -24,8 +24,17 @@
 #     ADR-0022: Redis 8 moved to RSALv2/SSPLv1, and the CI gate fails on redis:8* / redis:7.3*.
 #   * TLS terminates at nginx but no certificate provisioning is included; see DEPLOYMENT_GUIDE.
 #
-# NOT VALIDATED: no Docker daemon was available where this file was written, so `docker compose
-# config` has never been run against it. Treat first bring-up as a supervised event.
+# VALIDATED IN CI — BUT THAT IS NOT THE SAME AS PROVEN TO RUN. `.github/workflows/compose-config.yml`
+# runs `docker compose config` over this file on every push and pull request, twice: once with
+# CI-supplied credentials, and once with `--env-file .env.example` so the documented example has to
+# stay sufficient. That check is client-side and starts nothing — no container, no image build or
+# pull, no daemon, no GPU. It resolves the `<<:` merge key and the `x-` extension field, performs
+# ${VAR} interpolation, and validates the result against the Compose Specification, so it catches a
+# malformed file, a broken merge and a mandatory variable the example environment forgot to supply.
+# What it does NOT prove: that the images resolve, that migrations apply, that the healthchecks pass,
+# or that nginx can reach the API. Passing configuration validation says nothing about runtime
+# health, so treat first bring-up as a supervised event. The E2E stack that would actually prove the
+# services come up healthy is the second half of ADR-0005's CI commitment and remains future work.
 
 name: truthlens
 
