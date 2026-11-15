@@ -246,7 +246,19 @@ TruthLens_X/
    imported by *worker* code, never by the API process.
 5. `ai_services/` must not import `backend/app`. The only coupling is the **result contract**
    (JSON schemas in `backend/app/forensics/contracts/`), so engines remain independently testable.
-6. `core/` imports nothing from the application (no cycles).
+6. `core/` imports nothing from the application (no cycles). **Exception:** `core/health.py` may
+   import `db/` — readiness that cannot see the database reports healthy while evidence writes are
+   failing. The dependency is a probe, not a query.
+7. `db/` provides **sessions, not queries**. It may import `core/` (settings, errors) and nothing
+   else from the application — never `models/`, `repositories/`, `services/`, `api/`, `tasks/`,
+   `forensics/` or `reporting/`. Models import the declarative base *from* `db/`, so an import back
+   would be a cycle; and domain knowledge in the one layer every other layer depends on makes that
+   layer impossible to reuse from a worker or to test on its own.
+8. `models/` declares the schema and nothing else. It may import `db/` (the base, the mixins, the
+   column types) and never `services/`, `repositories/`, `api/`, `tasks/`, `forensics/` or
+   `reporting/`. A model has no session, so it cannot run a query, own a transaction or make an
+   authorisation decision — and a rule that needs one of those belongs in a service, where rule 2
+   already puts it.
 
 Violations fail CI. This is what keeps the "modular architecture" rule true over time rather than
 only at the start.

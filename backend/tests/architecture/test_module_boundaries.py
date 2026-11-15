@@ -190,6 +190,56 @@ BOUNDARY_RULES: Final[tuple[BoundaryRule, ...]] = (
         ),
     ),
     _rule(
+        name="db provides sessions, not queries",
+        rule_number=7,
+        module_prefix="app.db",
+        forbidden=(
+            "app.models",
+            "app.repositories",
+            "app.services",
+            "app.api",
+            "app.tasks",
+            "app.forensics",
+            "app.reporting",
+        ),
+        reason=(
+            "§4.1(7): this layer hands out engines, sessions and transaction helpers. Models import "
+            "the declarative base from here, so an import back is a cycle — and the cycle is not "
+            "the worst part. Domain knowledge in the layer everything depends on means a worker "
+            "cannot open a session without importing the schema, and the session helpers cannot be "
+            "tested without a database that has the tables in them."
+        ),
+        source=BACKEND_ROOT,
+    ),
+    _rule(
+        name="models declare the schema and nothing else",
+        rule_number=8,
+        module_prefix="app.models",
+        forbidden=(
+            "app.repositories",
+            "app.services",
+            "app.api",
+            "app.tasks",
+            "app.forensics",
+            "app.reporting",
+        ),
+        reason=(
+            "§4.1(8): a model has no session, so it cannot run a query, own a transaction or make an "
+            "authorisation decision. Importing a service to do one of those would move the decision "
+            "into a class declaration, where it runs at import time or not at all — and rule 3 says "
+            "repositories import models, so the dependency would close a cycle through the "
+            "persistence layer."
+        ),
+        source=BACKEND_ROOT,
+        allowed=("app.db",),
+        allowed_because=(
+            "The declarative base, the timestamp and soft-delete mixins and the column types live in "
+            "app.db. That import is the reason the models share one metadata object, one naming "
+            "convention and one timestamptz type — which is what makes `alembic check` able to "
+            "compare them against a migrated database at all."
+        ),
+    ),
+    _rule(
         name="ai_services never imports the backend",
         rule_number=5,
         module_prefix="engines",
