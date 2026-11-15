@@ -153,9 +153,8 @@ jobs:
       - name: Default dependency graph is copyleft-free (ADR-0001)
         run: |
           python - <<'PY'
-          import sys, tomllib, pathlib
+          import os, sys, tomllib, pathlib
 
-          spec = tomllib.loads(pathlib.Path("backend/pyproject.toml").read_text())
           # Names that are AGPL / SSPL / RSAL, or dual-licensed with a copyleft option.
           BANNED_IN_DEFAULT = {
               "ultralytics",      # AGPL-3.0
@@ -163,21 +162,70 @@ jobs:
               "fitz",             # legacy name for PyMuPDF
               "pyagpl",
           }
-          default = [d for d in spec["project"]["dependencies"]]
+          PRUNE = {".git", "node_modules", "build", "dist", "site-packages"}
+
+
+          def manifests():
+              """Every packaging manifest in the repository — discovered, never hardcoded."""
+              for root, dirs, files in os.walk("."):
+                  dirs[:] = sorted(d for d in dirs if d not in PRUNE and not d.startswith((".", "__")))
+                  for name in ("pyproject.toml", "package.json"):
+                      if name in files:
+                          yield pathlib.Path(root) / name
+
+          # Every Python distribution in the repository is checked, not just the backend. This gate
+          # used to hardcode backend/pyproject.toml, which put ai_services — merged as a second
+          # distribution — outside its reach while the job still printed OK. A gate that quietly
+          # stops covering the repository as it grows is worse than no gate: it removes the signal
+          # and keeps the confidence. So the manifests are discovered, and each step asserts that
+          # the distributions it expects to find were actually found, making a broken walk loud.
+          specs = {}
+          for path in manifests():
+              if path.name != "pyproject.toml":
+                  continue
+              project = tomllib.loads(path.read_text()).get("project")
+              if project is not None:
+                  specs[str(path)] = project
+          for expected in ("backend/pyproject.toml", "ai_services/pyproject.toml"):
+              if expected not in specs:
+                  print(f"::error::{expected} was not discovered; the manifest walk is broken.")
+                  sys.exit(1)
+
           hits = []
-          for req in default:
-              name = req.split("[")[0].split("=")[0].split("<")[0].split(">")[0].split("!")[0]
-              name = name.strip().lower().replace("_", "-")
-              if name in BANNED_IN_DEFAULT:
-                  hits.append(req)
+          total = 0
+          for path, project in specs.items():
+              default = list(project.get("dependencies", []))
+              total += len(default)
+              for req in default:
+                  name = req.split("[")[0].split("=")[0].split("<")[0].split(">")[0].split("!")[0]
+                  name = name.strip().lower().replace("_", "-")
+                  if name in BANNED_IN_DEFAULT:
+                      hits.append(f"{path}: {req}")
+
+          # The engine-contract distribution ships no third-party runtime dependency and must keep it
+          # that way. Engines arrive as plugins through the `truthlens.engines` entry-point group, so
+          # a dependency here would mean the contract itself had started reaching out to a third
+          # party — against ADR-0021 (egress minimisation, no silent fallback) and ADR-0023
+          # (weight-free indicators by default). Dev-only pins live in the `dev` extra and are not
+          # scanned, because they never ship.
+          contract = specs["ai_services/pyproject.toml"]
+          if contract.get("dependencies"):
+              hits.append(
+                  "ai_services/pyproject.toml: engine contract declares runtime dependencies "
+                  f"{contract['dependencies']!r}; this list must stay empty"
+              )
+
           if hits:
-              print("::error::Copyleft package(s) in the DEFAULT dependency set:", hits)
+              print("::error::Copyleft or contract-breaking package(s) in a DEFAULT dependency set:")
+              for hit in hits:
+                  print("   ", hit)
               print("Move them to the `agpl` extra behind an ENABLE_* flag (ADR-0001).")
               sys.exit(1)
-          print(f"OK: {len(default)} default dependencies, none copyleft.")
-
-          extras = spec["project"].get("optional-dependencies", {})
-          print("extras:", {k: len(v) for k, v in extras.items()})
+          print(f"OK: {len(specs)} distribution(s), {total} default dependencies, none copyleft.")
+          for path, project in specs.items():
+              extras = project.get("optional-dependencies", {})
+              summary = ", ".join(f"{k}: {len(v)}" for k, v in extras.items())
+              print(f"   {path}: {len(project.get('dependencies', []))} default, extras {{{summary}}}")
           PY
 
       # ADR-0001 / ADR-0014 / ADR-0015: every copyleft or unverified-licence capability must default
@@ -212,20 +260,59 @@ jobs:
       - name: No implied licence grant in package metadata (ADR-0008)
         run: |
           python - <<'PY'
-          import sys, tomllib, pathlib
+          import json, os, sys, tomllib, pathlib
 
-          spec = tomllib.loads(pathlib.Path("backend/pyproject.toml").read_text())
-          project = spec["project"]
+          PRUNE = {".git", "node_modules", "build", "dist", "site-packages"}
+
+
+          def manifests():
+              """Every packaging manifest in the repository — discovered, never hardcoded."""
+              for root, dirs, files in os.walk("."):
+                  dirs[:] = sorted(d for d in dirs if d not in PRUNE and not d.startswith((".", "__")))
+                  for name in ("pyproject.toml", "package.json"):
+                      if name in files:
+                          yield pathlib.Path(root) / name
+
+          # ADR-0008 keeps this repository deliberately unlicensed until the owner records a
+          # decision, and that applies to every manifest published from it — not only the backend's.
+          # A `license = "Apache-2.0"` in ai_services/pyproject.toml or a `license` field in
+          # frontend/package.json is a licence grant exactly as real as one in the backend, so the
+          # scan walks the whole tree.
+          #
+          # Note what this gate does: it passes by asserting ABSENCE. There is no LICENSE file to
+          # compare against, and that is the point — adding one is an owner decision, and this gate
+          # fails the build until that decision has been recorded rather than forbidding it.
           problems = []
-          if "license" in project:
-              problems.append(f"project.license = {project['license']!r}")
-          classifiers = project.get("classifiers", [])
-          problems += [f"classifier {c!r}" for c in classifiers if c.startswith("License ::")]
+          scanned = []
+          for path in manifests():
+              scanned.append(str(path))
+              if path.name == "pyproject.toml":
+                  project = tomllib.loads(path.read_text()).get("project")
+                  if project is None:
+                      continue
+                  if "license" in project:
+                      problems.append(f"{path}: project.license = {project['license']!r}")
+                  problems += [
+                      f"{path}: classifier {c!r}"
+                      for c in project.get("classifiers", [])
+                      if c.startswith("License ::")
+                  ]
+              else:
+                  meta = json.loads(path.read_text())
+                  if meta.get("license"):
+                      problems.append(f"{path}: license = {meta['license']!r}")
+
+          for expected in ("backend/pyproject.toml", "ai_services/pyproject.toml",
+                           "frontend/package.json"):
+              if expected not in scanned:
+                  print(f"::error::{expected} was not scanned; the manifest walk is broken.")
+                  sys.exit(1)
           if problems:
               print("::error::Package metadata implies a licence grant:", problems)
               print("ADR-0008 keeps the repository unlicensed until the owner decides otherwise.")
               sys.exit(1)
-          print("OK: no licence field and no License :: classifier in backend metadata.")
+          print(f"OK: {len(scanned)} manifest(s) scanned, no licence field, no License :: classifier.")
+          print("   ", ", ".join(scanned))
           PY
 
       # The compose stack must keep the ratified port-exposure rule: only nginx publishes ports.

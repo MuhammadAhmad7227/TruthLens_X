@@ -1,0 +1,139 @@
+name: ✨ Feature or capability request
+description: Propose new behaviour, a new forensic capability, or a change to an existing decision.
+title: "[feature] "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        TruthLens X works to a published milestone plan (`docs/IMPLEMENTATION_ROADMAP.md`, roughly
+        165 engineering days across M1–M21) and a ratified decision register
+        (`docs/DECISIONS.md` + `docs/adr/`). A proposal is much more likely to be accepted if it
+        says which milestone it belongs to and which gates it touches — because those gates are
+        enforced in CI, and a feature that cannot pass them cannot merge however useful it is.
+
+        If you are asking for a **ratified decision to be reversed**, say so explicitly and cite the
+        ADR. That is a legitimate request; hiding it inside a feature request is not.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: >-
+        Describe the task a user cannot complete today, and what happens instead. "It would be nice
+        to have X" is not a problem statement; "an examiner cannot tell whether a timestamp came
+        from the camera or the filesystem, so they cannot weigh it" is.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: >-
+        What should happen, concretely. Include the API shape or UI flow if you have one in mind,
+        and — importantly — what the system should do when the capability is **unavailable**, since
+        every forensic indicator here must degrade honestly rather than silently returning nothing.
+        An empty result is not a clean result.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: milestone
+    attributes:
+      label: Milestone
+      description: >-
+        Where does this belong? From docs/IMPLEMENTATION_ROADMAP.md. If it belongs to a milestone
+        that is already marked complete, that is worth saying — it means reopening scope.
+      options:
+        - "M1 — Repository foundation"
+        - "M2 — Database & migrations"
+        - "M3 — Auth & RBAC"
+        - "M4 — Case management"
+        - "M5 — Evidence ingest & integrity"
+        - "M6 — Chain of custody"
+        - "M7 — Async platform"
+        - "M8 — Metadata extraction"
+        - "M9 — Image forensics"
+        - "M10 — Document forensics"
+        - "M11 — Audio forensics"
+        - "M12 — Video forensics"
+        - "M13 — Detection, tracking & ALPR"
+        - "M14 — Deepfake indicators"
+        - "M15 — Comparison & similarity"
+        - "M16 — Graph & timeline"
+        - "M17 — AI assistant"
+        - "M18 — Reports"
+        - "M19 — Admin & monitoring"
+        - "M20 — Security hardening & assurance"
+        - "M21 — E2E, performance & release"
+        - "Cross-cutting / no single milestone"
+        - "I don't know — needs triage"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: >-
+        What else could solve this, and why is it worse? If a rejected alternative is already
+        recorded in an ADR, cite it — that saves everyone a round trip.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: gates
+    attributes:
+      label: Gates this proposal touches
+      description: |
+        Tick every gate your proposal would engage. These are the questions CI and review will ask
+        anyway; answering them up front is the single biggest accelerator for a proposal.
+
+        Leave a box unticked only if the gate genuinely does not apply — and say why in the notes.
+      options:
+        - label: >-
+            **Data egress.** The feature sends case data, media, metadata, embeddings or prompts
+            outside the deployment. Default posture is **no egress** (ADR-0012 data residency;
+            ADR-0021 AI egress minimisation with **no silent fallback**), it must be opt-in behind
+            an `ENABLE_*` / `LLM_ALLOW_EXTERNAL_EGRESS` flag that defaults to off, and what leaves
+            must be minimised and disclosed to the user before it happens.
+        - label: >-
+            **Copyleft / dependency licence.** The feature adds a dependency that is AGPL, SSPL,
+            RSAL, or dual-licensed with a copyleft option (e.g. `ultralytics`, `pymupdf`/`fitz`).
+            Those may only live in the opt-in `agpl` extra behind an `ENABLE_*` flag defaulting to
+            off (ADR-0001), and must be listed in docs/THIRD_PARTY_LICENSE_AUDIT.md.
+        - label: >-
+            **Model weights.** The feature needs downloadable weights or a model registry entry.
+            Record the licence, the provenance, and the checksum; note that weight-free indicators
+            are preferred where they are adequate (ADR-0023), that model download is gated by
+            `ALLOW_MODEL_DOWNLOAD`, and that a missing model must report `unavailable` rather than
+            quietly returning no findings.
+        - label: >-
+            **Retention / deletion.** The feature stores something new, or changes how long
+            something is kept. Retention defaults are **operator-specified** (ADR-0020): an unset
+            `RETENTION_STATUTORY_DAYS` means retention jobs delete nothing, and that must stay
+            visible rather than being given a convenient default.
+        - label: >-
+            **Evidence integrity / custody.** The feature writes to, derives from, or displays
+            evidence. Originals are write-once and content-addressed; every state change needs a
+            hash-chained custody event and an audit-log entry; derived artefacts must never be
+            able to overwrite or stand in for an original.
+        - label: >-
+            **Licensing of the repository itself.** The feature adds a `LICENSE` file, a
+            `project.license` field, or a `License ::` classifier anywhere. **ADR-0008 keeps this
+            repository unlicensed until the owner records a decision**, and a CI gate fails the
+            build on any implied grant — so raise it as an owner decision, not as part of a feature.
+        - label: >-
+            **None of the above** — and I have read the list rather than skipping it.
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes, prior art, and anything unverified
+      description: >-
+        Links, papers, existing tools. Also state honestly what you have **not** checked — an
+        unverified licence assumption (for example the gazetteer data source, still open as legal
+        gate L-7) is far cheaper to flag now than to discover during a release review.
+    validations:
+      required: false
