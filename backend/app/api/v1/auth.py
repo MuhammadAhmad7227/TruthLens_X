@@ -190,7 +190,7 @@ def mfa_enrol(request: Request, principal: CurrentPrincipal, session: SessionDep
 
 
 @router.post("/mfa/confirm", status_code=status.HTTP_204_NO_CONTENT)
-def mfa_confirm(payload: MfaCodeRequest, request: Request, principal: CurrentPrincipal, session: SessionDep, settings: Annotated[Settings, get_settings]) -> Response:
+def mfa_confirm(payload: MfaCodeRequest, request: Request, principal: CurrentPrincipal, session: SessionDep, settings: Annotated[Settings, Depends(get_settings)]) -> Response:
     auth_service.confirm_mfa_enrolment(
         session, settings, user=principal.user, code=payload.code, request_id=getattr(request.state, "request_id", None)
     )
