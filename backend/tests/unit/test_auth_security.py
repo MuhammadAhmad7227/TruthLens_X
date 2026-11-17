@@ -54,7 +54,8 @@ def test_jwt_uses_ed25519_and_required_claims() -> None:
     assert claims["sub"] == str(user_id)
     assert claims["sid"] == str(session_id)
     assert claims["roles"] == ["investigator"]
-    assert "jti" in claims\n    assert claims["exp"] > claims["iat"]
+    assert "jti" in claims
+    assert claims["exp"] > claims["iat"]
 
 
 def test_jwt_rejects_hs256() -> None:
