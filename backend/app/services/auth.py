@@ -13,8 +13,8 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.core.errors import (
     AuthorisationError,
-    NotFoundError,
     MFARequiredError,
+    NotFoundError,
     RateLimitedError,
     TokenExpiredError,
     UnauthenticatedError,
