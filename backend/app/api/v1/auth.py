@@ -64,7 +64,8 @@ def login(
         challenge = exc.challenge_token or ""
         response.headers["X-MFA-Challenge"] = challenge
         raise
-    assert user is not None and row is not None and access is not None and refresh is not None
+    if user is None or row is None or access is None or refresh is None:
+        raise RuntimeError("authentication service returned an incomplete login result")
     _set_refresh_cookie(response, refresh, settings)
     return LoginResponse(
         access_token=access,
