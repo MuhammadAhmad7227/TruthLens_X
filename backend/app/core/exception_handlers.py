@@ -19,7 +19,6 @@ import structlog
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from app.core.errors import RateLimitedError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ExceptionHandler
 
@@ -29,6 +28,8 @@ from app.core.errors import (
     FieldError,
     ProblemDetail,
     TruthLensError,
+    MFARequiredError,
+    RateLimitedError,
 )
 
 logger = structlog.get_logger(__name__)
@@ -117,6 +118,8 @@ async def handle_truthlens_error(request: Request, exc: TruthLensError) -> JSONR
     response = _problem_response(problem)
     if isinstance(exc, RateLimitedError):
         response.headers["Retry-After"] = str(exc.retry_after)
+    if isinstance(exc, MFARequiredError) and exc.challenge_token:
+        response.headers["X-MFA-Challenge"] = exc.challenge_token
     return response
 
 
