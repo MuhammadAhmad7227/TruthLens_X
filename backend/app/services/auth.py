@@ -249,3 +249,24 @@ def disable_mfa(session: Session, *, user: User, password: str, request_id: str 
     revoke_all_sessions(session, user.id, datetime.now(UTC))
     append_audit(session, action="auth.mfa.disabled", result="allowed", actor_id=user.id, actor_role=user.global_role.value, request_id=request_id, resource_type="user", resource_id=user.id)
     session.commit()
+
+
+def admin_unlock(session: Session, *, actor: User, target: User, request_id: str | None) -> None:
+    """Clear login lockout; only the administrator global role may invoke this M3 operation."""
+    from app.models.enums import GlobalRole
+
+    if actor.global_role is not GlobalRole.ADMIN:
+        raise AuthorisationError("Administrator role required")
+    target.failed_login_count = 0
+    target.locked_until = None
+    append_audit(
+        session,
+        action="admin.user.unlock",
+        result="allowed",
+        actor_id=actor.id,
+        actor_role=actor.global_role.value,
+        resource_type="user",
+        resource_id=target.id,
+        request_id=request_id,
+    )
+    session.commit()
