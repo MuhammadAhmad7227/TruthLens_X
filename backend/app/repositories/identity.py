@@ -7,7 +7,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, text, update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.models.identity import User, UserSession
@@ -82,8 +82,6 @@ def touch_successful_login(session: Session, user: User, ip: str | None) -> None
 def record_failed_login(session: Session, user: User, *, lock_threshold: int = 5) -> None:
     user.failed_login_count += 1
     if user.failed_login_count >= lock_threshold:
-        from datetime import timedelta
-
         user.locked_until = datetime.now(UTC) + timedelta(minutes=15)
 
 
