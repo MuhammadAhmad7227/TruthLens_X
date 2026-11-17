@@ -20,9 +20,9 @@ def encrypt_secret(secret: str, key_material: str) -> bytes:
 
 
 def decrypt_secret(blob: bytes, key_material: str) -> str:
-    if len(blob) < 13:
+    if len(blob) < _MIN_ENCRYPTED_BYTES:
         raise ValueError("invalid encrypted MFA secret")
-    plaintext = AESGCM(_key(key_material)).decrypt(blob[:12], blob[12:], None)
+    plaintext = AESGCM(_key(key_material)).decrypt(blob[:_NONCE_BYTES], blob[_NONCE_BYTES:], None)
     return plaintext.decode("utf-8")
 
 
