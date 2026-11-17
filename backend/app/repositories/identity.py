@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from sqlalchemy import select, text, update
 from sqlalchemy.orm import Session
 
-from app.models.enums import GlobalRole, UserStatus
 from app.models.identity import User, UserSession
 
 
@@ -38,7 +37,7 @@ def create_session(
         refresh_token_hash=hashlib.sha256(raw.encode()).hexdigest(),
         family_id=uuid4(),
         issued_at=now,
-        expires_at=now.replace(microsecond=0) + __import__("datetime").timedelta(seconds=ttl_seconds),
+        expires_at=now.replace(microsecond=0) + timedelta(seconds=ttl_seconds),
         ip=ip,
         user_agent=user_agent,
     )
