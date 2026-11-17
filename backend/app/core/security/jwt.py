@@ -14,9 +14,9 @@ import jwt
 from jwt import InvalidTokenError
 
 from app.core.config import Settings
-from app.core.errors import UnauthenticatedError
+from app.core.errors import TokenExpiredError, UnauthenticatedError
 
-ALGORITHM = "EdDSA"
+ALGORITHM = "EdDSA"\nMAX_ACCESS_TOKEN_TTL_SECONDS = 15 * 60
 
 
 def issue_access_token(
@@ -28,7 +28,7 @@ def issue_access_token(
     mfa_verified: bool,
 ) -> str:
     """Issue the mandatory short-lived EdDSA access token."""
-    if settings.access_token_ttl_seconds > 900:
+    if settings.access_token_ttl_seconds > MAX_ACCESS_TOKEN_TTL_SECONDS:
         raise ValueError("access token TTL exceeds the mandatory 15-minute maximum")
     if not settings.jwt_private_key:
         raise ValueError("JWT_PRIVATE_KEY is not configured")
@@ -44,7 +44,7 @@ def issue_access_token(
         "aud": settings.jwt_audience,
         "mfa": mfa_verified,
     }
-    return jwt.encode(claims, settings.jwt_private_key, algorithm=ALGORITHM, headers={"kid": settings.jwt_key_id})
+    return jwt.encode(\n        claims,\n        settings.jwt_private_key,\n        algorithm=ALGORITHM,\n        headers={"kid": settings.jwt_key_id},\n    )
 
 
 def decode_access_token(settings: Settings, token: str) -> dict[str, Any]:
