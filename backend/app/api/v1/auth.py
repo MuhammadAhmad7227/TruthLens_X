@@ -10,8 +10,8 @@ from app.api.v1.auth_deps import CurrentPrincipal
 from app.api.v1.auth_schemas import (
     LoginRequest,
     LoginResponse,
-    UpdateMeRequest,
     MeResponse,
+    UpdateMeRequest,
     MfaCodeRequest,
     MfaDisableRequest,
     MfaEnrollResponse,
@@ -81,7 +81,7 @@ def verify_mfa(
     session: SessionDep,
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> LoginResponse:
-    user, row, access, refresh = auth_service.verify_mfa(
+    user, _row, access, refresh = auth_service.verify_mfa(
         session,
         settings,
         challenge_token=payload.challenge_token,
@@ -104,7 +104,7 @@ def refresh(
 ) -> LoginResponse:
     if not refresh_token:
         raise UnauthenticatedError("Refresh cookie is missing")
-    user, row, access, new_refresh = auth_service.refresh(
+    user, _row, access, new_refresh = auth_service.refresh(
         session,
         settings,
         raw_refresh_token=refresh_token,
