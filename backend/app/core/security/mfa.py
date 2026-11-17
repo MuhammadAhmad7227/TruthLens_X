@@ -6,7 +6,7 @@ import hashlib
 import os
 
 import pyotp
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM\n\n_NONCE_BYTES = 12\n_MIN_ENCRYPTED_BYTES = _NONCE_BYTES + 16
 
 
 def _key(secret: str) -> bytes:
@@ -14,7 +14,7 @@ def _key(secret: str) -> bytes:
 
 
 def encrypt_secret(secret: str, key_material: str) -> bytes:
-    nonce = os.urandom(12)
+    nonce = os.urandom(_NONCE_BYTES)
     ciphertext = AESGCM(_key(key_material)).encrypt(nonce, secret.encode("utf-8"), None)
     return nonce + ciphertext
 
