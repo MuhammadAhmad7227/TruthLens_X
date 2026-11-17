@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.core.errors import (
     AuthorisationError,
+    NotFoundError,
     MFARequiredError,
     RateLimitedError,
     TokenExpiredError,
@@ -20,9 +21,16 @@ from app.core.errors import (
 )
 from app.core.security.denylist import InProcessJtiDenylist, JtiDenylist
 from app.core.security.jwt import decode_access_token, issue_access_token
-from app.core.security.mfa import decrypt_secret, encrypt_secret, new_totp_secret, provisioning_uri, verify_totp
+from app.core.security.mfa import (
+    decrypt_secret,
+    encrypt_secret,
+    new_totp_secret,
+    provisioning_uri,
+    verify_totp,
+)
 from app.core.security.rate_limit import InProcessRateLimiter
 from app.core.security.passwords import hash_password, needs_rehash, verify_password
+from app.models.enums import GlobalRole
 from app.models.identity import User, UserSession
 from app.repositories.audit import append_audit
 from app.repositories.identity import (
@@ -261,8 +269,6 @@ def disable_mfa(session: Session, *, user: User, password: str, request_id: str 
 
 def admin_unlock(session: Session, *, actor: User, target: User, request_id: str | None) -> None:
     """Clear login lockout; only the administrator global role may invoke this M3 operation."""
-    from app.models.enums import GlobalRole
-
     if actor.global_role is not GlobalRole.ADMIN:
         raise AuthorisationError("Administrator role required")
     target.failed_login_count = 0
@@ -300,7 +306,6 @@ def authenticate_access_token(session: Session, settings: Settings, token: str) 
 def admin_unlock_by_id(session: Session, *, actor: User, target_id: UUID, request_id: str | None) -> None:
     target = session.get(User, target_id)
     if target is None:
-        from app.core.errors import NotFoundError
         raise NotFoundError()
     admin_unlock(session, actor=actor, target=target, request_id=request_id)
 
