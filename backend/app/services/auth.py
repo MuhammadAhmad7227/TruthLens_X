@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 from datetime import UTC, datetime, timedelta
 from dataclasses import dataclass
-from typing import Any
 from uuid import UUID, uuid4
 
 import jwt
