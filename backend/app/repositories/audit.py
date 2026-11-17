@@ -1,3 +1,4 @@
+# fmt: off
 # ruff: isort: skip_file
 """Append-only audit-chain writer for M3 authentication events."""
 
@@ -78,3 +79,5 @@ def append_audit(
     )
     session.add(row)
     return row
+
+# fmt: on
