@@ -8,9 +8,6 @@ from fastapi import APIRouter, Request, status
 
 from app.api.v1.auth_deps import CurrentPrincipal
 from app.api.v1.deps import SessionDep
-from app.core.errors import ForbiddenRoleError, NotFoundError
-from app.models.enums import GlobalRole
-from app.models.identity import User
 from app.services import auth as auth_service
 
 router = APIRouter(prefix="/admin/users", tags=["auth"])
@@ -23,9 +20,4 @@ def unlock_user(
     principal: CurrentPrincipal,
     session: SessionDep,
 ) -> None:
-    if principal.user.global_role is not GlobalRole.ADMIN:
-        raise ForbiddenRoleError()
-    target = session.get(User, user_id)
-    if target is None:
-        raise NotFoundError()
-    auth_service.admin_unlock(session, actor=principal.user, target=target, request_id=getattr(request.state, "request_id", None))
+    auth_service.admin_unlock_by_id(session, actor=principal.user, target_id=user_id, request_id=getattr(request.state, "request_id", None))
