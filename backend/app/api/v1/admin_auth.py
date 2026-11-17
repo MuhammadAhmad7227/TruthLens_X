@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
@@ -10,7 +9,6 @@ from fastapi import APIRouter, Depends, status
 from app.api.v1.auth_deps import CurrentPrincipal
 from app.api.v1.deps import SessionDep
 from app.core.errors import ForbiddenRoleError, NotFoundError
-from app.core.config import Settings, get_settings
 from app.models.enums import GlobalRole
 from app.models.identity import User
 from app.services import auth as auth_service
