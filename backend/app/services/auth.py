@@ -21,6 +21,7 @@ from app.core.errors import (
 from app.core.security.denylist import InProcessJtiDenylist, JtiDenylist
 from app.core.security.jwt import decode_access_token, issue_access_token
 from app.core.security.mfa import decrypt_secret, encrypt_secret, new_totp_secret, provisioning_uri, verify_totp
+from app.core.security.rate_limit import InProcessRateLimiter
 from app.core.security.passwords import hash_password, needs_rehash, verify_password
 from app.models.identity import User, UserSession
 from app.repositories.audit import append_audit
@@ -39,6 +40,7 @@ from app.repositories.identity import (
 )
 
 DENYLIST: JtiDenylist = InProcessJtiDenylist()
+LOGIN_LIMITER = InProcessRateLimiter()
 
 
 def _challenge(settings: Settings, user: User) -> str:
@@ -92,6 +94,12 @@ def login(
     request_id: str | None,
 ) -> tuple[User, UserSession | None, str | None, str | None]:
     """Authenticate credentials and either issue a session or an MFA challenge."""
+    allowed_ip, _ = LOGIN_LIMITER.allow(f"login:ip:{ip or 'unknown'}", limit=10, window_seconds=60)
+    allowed_email, _ = LOGIN_LIMITER.allow(f"login:email:{email.strip().lower()}", limit=10, window_seconds=60)
+    if not allowed_ip or not allowed_email:
+        append_audit(session, action="auth.login.rate_limited", result="denied", reason="RATE_LIMITED", actor_ip=ip, user_agent=user_agent, request_id=request_id)
+        session.commit()
+        raise RateLimitedError(retry_after=60)
     user = get_user_by_email(session, email)
     if user is None:
         append_audit(session, action="auth.login.failed", result="denied", reason="INVALID_CREDENTIALS", actor_ip=ip, user_agent=user_agent, request_id=request_id)
@@ -163,10 +171,16 @@ def refresh(
     if row is None:
         raise UnauthenticatedError("Invalid refresh token")
     user = get_user(session, row.user_id)
-    if user is None or row.expires_at <= now or row.revoked_at is not None:
-        if user is not None:
-            append_audit(session, action="auth.refresh.rejected", result="denied", actor_id=user.id, actor_role=user.global_role.value, reason="REVOKED_OR_EXPIRED", actor_ip=ip, user_agent=user_agent, request_id=request_id)
-            session.commit()
+    if user is None:
+        raise UnauthenticatedError("Invalid refresh token")
+    if row.revoked_at is not None:
+        revoke_family(session, row.family_id, now)
+        append_audit(session, action="auth.refresh.reuse_detected", result="denied", actor_id=user.id, actor_role=user.global_role.value, reason="ROTATED_TOKEN_REUSE", actor_ip=ip, user_agent=user_agent, request_id=request_id)
+        session.commit()
+        raise UnauthenticatedError("Refresh token reuse detected; the session family was revoked")
+    if row.expires_at <= now:
+        append_audit(session, action="auth.refresh.rejected", result="denied", actor_id=user.id, actor_role=user.global_role.value, reason="EXPIRED", actor_ip=ip, user_agent=user_agent, request_id=request_id)
+        session.commit()
         raise UnauthenticatedError("Invalid refresh token")
     revoke_session(session, row, now)
     new_row, new_refresh = create_session(session, user=user, ip=ip, user_agent=user_agent, ttl_seconds=settings.refresh_token_ttl_seconds)
