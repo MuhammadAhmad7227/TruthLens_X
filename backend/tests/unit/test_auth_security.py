@@ -133,3 +133,17 @@ def test_rate_limiter_enforces_window() -> None:
     assert limiter.allow("k", limit=2, window_seconds=60)[0]
     assert limiter.allow("k", limit=2, window_seconds=60)[0]
     assert not limiter.allow("k", limit=2, window_seconds=60)[0]
+
+
+def test_test_settings_generate_matching_ed25519_keypair() -> None:
+    settings = Settings(tlx_env=Environment.TEST)
+    assert settings.jwt_private_key is not None
+    assert settings.jwt_public_key is not None
+    token = issue_access_token(
+        settings,
+        user_id=uuid4(),
+        session_id=uuid4(),
+        roles=["investigator"],
+        mfa_verified=False,
+    )
+    assert decode_access_token(settings, token)["iss"] == settings.jwt_issuer
