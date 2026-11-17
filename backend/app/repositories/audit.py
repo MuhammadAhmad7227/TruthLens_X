@@ -1,3 +1,4 @@
+# ruff: isort: skip_file
 """Append-only audit-chain writer for M3 authentication events."""
 
 from __future__ import annotations
