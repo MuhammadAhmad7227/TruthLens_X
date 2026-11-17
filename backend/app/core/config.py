@@ -21,13 +21,12 @@ See ``docs/SECURITY_ARCHITECTURE.md`` §5.3 and ``docs/AI_ARCHITECTURE.md`` §3.
 from __future__ import annotations
 
 import secrets
-
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Self
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
