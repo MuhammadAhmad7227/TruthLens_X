@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from argon2 import PasswordHasher
-from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
+from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError\n\n_MIN_PASSWORD_LENGTH = 12
 
 _hasher = PasswordHasher()
 
