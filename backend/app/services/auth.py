@@ -304,3 +304,18 @@ def admin_unlock_by_id(session: Session, *, actor: User, target_id: UUID, reques
         from app.core.errors import NotFoundError
         raise NotFoundError()
     admin_unlock(session, actor=actor, target=target, request_id=request_id)
+
+
+def update_profile(session: Session, *, user: User, full_name: str, request_id: str | None) -> None:
+    user.full_name = full_name.strip()
+    append_audit(
+        session,
+        action="auth.profile.updated",
+        result="allowed",
+        actor_id=user.id,
+        actor_role=user.global_role.value,
+        request_id=request_id,
+        resource_type="user",
+        resource_id=user.id,
+    )
+    session.commit()
