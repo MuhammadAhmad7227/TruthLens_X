@@ -189,6 +189,35 @@ class AuthorisationError(TruthLensError):
     audit_reason: AuditReason | None = "FORBIDDEN_CAPABILITY"
 
 
+class TokenExpiredError(AuthorisationError):
+    status = 401
+    error_code: ErrorCode = "TOKEN_EXPIRED"
+    title = "Access token expired"
+    audit_reason: AuditReason | None = None
+
+
+class MFARequiredError(AuthorisationError):
+    status = 401
+    error_code: ErrorCode = "MFA_REQUIRED"
+    title = "Multi-factor authentication required"
+    audit_reason: AuditReason | None = None
+
+    def __init__(self, detail: str | None = None, *, challenge_token: str | None = None) -> None:
+        super().__init__(detail)
+        self.challenge_token = challenge_token
+
+
+class RateLimitedError(TruthLensError):
+    status = 429
+    error_code: ErrorCode = "RATE_LIMITED"
+    title = "Rate limit exceeded"
+    audit_reason: AuditReason | None = None
+
+    def __init__(self, detail: str | None = None, *, retry_after: int = 60) -> None:
+        super().__init__(detail, remediation="Retry after the indicated delay.")
+        self.retry_after = retry_after
+
+
 class UnauthenticatedError(AuthorisationError):
     status: int = 401
     error_code: ErrorCode = "UNAUTHENTICATED"
@@ -346,8 +375,6 @@ class InternalError(TruthLensError):
 
 
 __all__ = [
-    "ERROR_TYPE_BASE",
-    "PROBLEM_CONTENT_TYPE",
     "AssistantUnavailableError",
     "AuditReason",
     "AuthorisationError",
@@ -359,6 +386,7 @@ __all__ = [
     "EgressConfirmationRequiredError",
     "EgressGrantExpiredError",
     "EngineError",
+    "ERROR_TYPE_BASE",
     "ErrorCode",
     "ExternalAIDisabledError",
     "FieldError",
@@ -368,9 +396,13 @@ __all__ = [
     "InternalError",
     "InvalidStateTransitionError",
     "LegalHoldError",
+    "MFARequiredError",
     "NotFoundError",
+    "PROBLEM_CONTENT_TYPE",
     "ProblemDetail",
+    "RateLimitedError",
     "RetentionNotConfiguredError",
+    "TokenExpiredError",
     "TruthLensError",
     "UnauthenticatedError",
     "ValidationError",

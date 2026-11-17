@@ -33,6 +33,7 @@ logger = get_logger(__name__)
 
 OPENAPI_TAGS: list[dict[str, Any]] = [
     {"name": "system", "description": "Liveness, readiness and platform status."},
+    {"name": "auth", "description": "Authentication, sessions, password and MFA lifecycle."},
 ]
 
 
@@ -226,16 +227,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {
             "service": resolved.service_name,
             "version": __version__,
-            "status": "milestone-M1-foundation",
+            "status": "milestone-M3-authentication",
             "api": "/api/v1",
             "health": "/healthz",
             "readiness": "/readyz",
             "status_endpoint": "/api/v1/status",
             "docs": "/docs",
             "note": (
-                "TruthLens X is under construction. Forensic analysis, authentication and evidence "
-                "handling are NOT implemented yet — see docs/IMPLEMENTATION_ROADMAP.md. Nothing "
-                "here should be read as an available capability."
+                "TruthLens X is under construction. Authentication is implemented in M3; forensic "
+                "analysis and evidence handling remain future milestones — see docs/IMPLEMENTATION_ROADMAP.md."
             ),
         }
 

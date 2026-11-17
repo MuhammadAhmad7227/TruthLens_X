@@ -26,7 +26,9 @@ from app.core.errors import (
     PROBLEM_CONTENT_TYPE,
     ErrorCode,
     FieldError,
+    MFARequiredError,
     ProblemDetail,
+    RateLimitedError,
     TruthLensError,
 )
 
@@ -113,7 +115,12 @@ async def handle_truthlens_error(request: Request, exc: TruthLensError) -> JSONR
         context=exc.context,
         exc_info=exc if exc.log_with_traceback else None,
     )
-    return _problem_response(problem)
+    response = _problem_response(problem)
+    if isinstance(exc, RateLimitedError):
+        response.headers["Retry-After"] = str(exc.retry_after)
+    if isinstance(exc, MFARequiredError) and exc.challenge_token:
+        response.headers["X-MFA-Challenge"] = exc.challenge_token
+    return response
 
 
 async def handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:

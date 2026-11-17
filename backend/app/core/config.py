@@ -25,6 +25,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Self
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -625,16 +627,30 @@ class Settings(BaseSettings):
         if self.tlx_env.is_prod_like:
             self.ephemeral_secrets = []
             return
-        for attr in _EPHEMERAL_ELIGIBLE:
+        if (
+            self.jwt_private_key is None
+            or self.jwt_public_key is None
+            or _is_placeholder(str(self.jwt_private_key))
+            or _is_placeholder(str(self.jwt_public_key))
+        ):
+            private_key = Ed25519PrivateKey.generate()
+            private_pem = private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption(),
+            ).decode("ascii")
+            public_pem = private_key.public_key().public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            ).decode("ascii")
+            object.__setattr__(self, "jwt_private_key", private_pem)
+            object.__setattr__(self, "jwt_public_key", public_pem)
+            generated.extend(["JWT_PRIVATE_KEY", "JWT_PUBLIC_KEY"])
+
+        for attr in ("secret_key", "signed_url_key", "encryption_key"):
             current = getattr(self, attr)
             if current is None or _is_placeholder(str(current)):
-                # A key id rather than a key pair: JWT signing is M3, and generating a valid
-                # Ed25519 PEM here would imply a capability that does not exist yet.
-                if attr in ("jwt_private_key", "jwt_public_key"):
-                    value = f"ephemeral-{attr}-{secrets.token_hex(16)}"
-                else:
-                    value = secrets.token_hex(32)
-                object.__setattr__(self, attr, value)
+                object.__setattr__(self, attr, secrets.token_hex(32))
                 generated.append(_field_for(attr))
         if generated:
             warnings.append(
