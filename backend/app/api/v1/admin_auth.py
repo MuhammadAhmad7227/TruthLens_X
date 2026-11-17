@@ -1,3 +1,4 @@
+# fmt: off
 """Minimal M3 administrator authentication operations."""
 
 from __future__ import annotations
@@ -21,3 +22,5 @@ def unlock_user(
     session: SessionDep,
 ) -> None:
     auth_service.admin_unlock_by_id(session, actor=principal.user, target_id=user_id, request_id=getattr(request.state, "request_id", None))
+
+# fmt: on
