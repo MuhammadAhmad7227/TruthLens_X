@@ -65,11 +65,9 @@ def decode_access_token(settings: Settings, token: str) -> dict[str, Any]:
             audience=settings.jwt_audience,
             options={"require": ["sub", "jti", "roles", "sid", "iat", "exp", "iss", "aud"]},
         )
+    except jwt.ExpiredSignatureError as exc:
+        raise TokenExpiredError() from exc
     except InvalidTokenError as exc:
-        if isinstance(exc, jwt.ExpiredSignatureError):
-            from app.core.errors import TokenExpiredError
-
-            raise TokenExpiredError() from exc
         raise UnauthenticatedError("Invalid access token") from exc
 
     for name in ("sub", "jti", "sid", "iss", "aud"):
