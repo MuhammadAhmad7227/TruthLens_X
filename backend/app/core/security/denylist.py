@@ -8,11 +8,12 @@ swapped for Redis without changing authentication business logic.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 from threading import RLock
 from time import monotonic
 
 
-class JtiDenylist:
+class JtiDenylist(Protocol):
     def deny(self, jti: str, ttl_seconds: int) -> None: ...
     def is_denied(self, jti: str) -> bool: ...
     def purge_expired(self) -> int: ...
