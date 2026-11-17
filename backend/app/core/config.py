@@ -1,3 +1,4 @@
+# fmt: off
 """Typed application configuration with fail-closed validation.
 
 This module is the enforcement point for the ratified decisions in ``docs/adr/``. A configuration
@@ -795,3 +796,5 @@ __all__ = [
     "get_settings",
     "reset_settings",
 ]
+
+# fmt: on
