@@ -48,6 +48,11 @@ class MfaDisableRequest(BaseModel):
     password: str = Field(min_length=1, max_length=1024)
 
 
+class UpdateMeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    full_name: str = Field(min_length=1, max_length=200)
+
+
 class MeResponse(BaseModel):
     id: UUID
     email: str
