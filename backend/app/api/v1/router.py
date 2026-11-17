@@ -15,10 +15,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, system
+from app.api.v1 import admin_auth, auth, system
 
 api_router = APIRouter()
 api_router.include_router(system.router)
 api_router.include_router(auth.router, prefix="/api/v1")
+api_router.include_router(admin_auth.router, prefix="/api/v1")
 
 __all__ = ["api_router"]
