@@ -12,7 +12,7 @@ from app.core.config import Environment, Settings
 from app.core.errors import TokenExpiredError, UnauthenticatedError
 from app.core.security.denylist import InProcessJtiDenylist
 from app.core.security.jwt import decode_access_token, issue_access_token
-from app.core.security.mfa import decrypt_secret, encrypt_secret, new_totp_secret, verify_totp
+from app.core.security.mfa import decrypt_secret, encrypt_secret, new_totp_secret
 from app.core.security.passwords import hash_password, needs_rehash, verify_password
 from app.core.security.rate_limit import InProcessRateLimiter
 
@@ -54,7 +54,7 @@ def test_jwt_uses_ed25519_and_required_claims() -> None:
     assert claims["sub"] == str(user_id)
     assert claims["sid"] == str(session_id)
     assert claims["roles"] == ["investigator"]
-    assert "jti" in claims and claims["exp"] > claims["iat"]
+    assert "jti" in claims\n    assert claims["exp"] > claims["iat"]
 
 
 def test_jwt_rejects_hs256() -> None:
