@@ -1,3 +1,4 @@
+# fmt: off
 """Authentication/session HTTP endpoints."""
 
 from __future__ import annotations
@@ -214,3 +215,5 @@ def update_me(payload: UpdateMeRequest, request: Request, principal: CurrentPrin
         request_id=getattr(request.state, "request_id", None),
     )
     return me(principal)
+
+# fmt: on
