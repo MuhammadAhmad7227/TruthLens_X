@@ -11,12 +11,12 @@ from app.api.v1.auth_schemas import (
     LoginRequest,
     LoginResponse,
     MeResponse,
-    UpdateMeRequest,
     MfaCodeRequest,
     MfaDisableRequest,
     MfaEnrollResponse,
     MfaVerifyRequest,
     PasswordChangeRequest,
+    UpdateMeRequest,
 )
 from app.api.v1.deps import SessionDep
 from app.core.config import Settings, get_settings
