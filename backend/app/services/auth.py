@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from datetime import UTC, datetime, timedelta
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -40,6 +41,14 @@ from app.repositories.identity import (
 )
 
 DENYLIST: JtiDenylist = InProcessJtiDenylist()
+
+
+@dataclass(frozen=True)
+class Principal:
+    user: User
+    session: UserSession
+    claims: dict[str, object]
+
 LOGIN_LIMITER = InProcessRateLimiter()
 
 
@@ -270,3 +279,20 @@ def admin_unlock(session: Session, *, actor: User, target: User, request_id: str
         request_id=request_id,
     )
     session.commit()
+
+
+def authenticate_access_token(session: Session, settings: Settings, token: str) -> Principal:
+    claims = decode_access_token(settings, token)
+    jti = str(claims["jti"])
+    if DENYLIST.is_denied(jti):
+        raise UnauthenticatedError("Access token has been revoked")
+    session_id = UUID(str(claims["sid"]))
+    row = session.get(UserSession, session_id)
+    if row is None or row.revoked_at is not None or row.expires_at <= datetime.now(UTC):
+        raise UnauthenticatedError("Session is no longer active")
+    user = session.get(User, UUID(str(claims["sub"])))
+    if user is None or user.status.value != "active":
+        raise UnauthenticatedError()
+    if row.user_id != user.id:
+        raise AuthorisationError("Session does not belong to the authenticated user")
+    return Principal(user=user, session=row, claims=claims)
