@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import UTC, datetime, timedelta
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import jwt
@@ -28,8 +28,8 @@ from app.core.security.mfa import (
     provisioning_uri,
     verify_totp,
 )
-from app.core.security.rate_limit import InProcessRateLimiter
 from app.core.security.passwords import hash_password, needs_rehash, verify_password
+from app.core.security.rate_limit import InProcessRateLimiter
 from app.models.enums import GlobalRole
 from app.models.identity import User, UserSession
 from app.repositories.audit import append_audit
