@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Cookie, Depends, Request, Response, status
-from sqlalchemy.orm import Session
 
 from app.api.v1.auth_deps import CurrentPrincipal
 from app.api.v1.auth_schemas import (
@@ -23,7 +21,6 @@ from app.api.v1.auth_schemas import (
 from app.api.v1.deps import SessionDep
 from app.core.config import Settings, get_settings
 from app.core.errors import MFARequiredError, UnauthenticatedError
-from app.core.security.jwt import issue_access_token
 from app.services import auth as auth_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -102,7 +99,7 @@ def refresh(
     request: Request,
     response: Response,
     session: SessionDep,
-    settings: Annotated[Settings, get_settings],
+    settings: Annotated[Settings, Depends(get_settings)],
     refresh_token: str | None = Cookie(default=None, alias="tlx_refresh"),
 ) -> LoginResponse:
     if not refresh_token:
