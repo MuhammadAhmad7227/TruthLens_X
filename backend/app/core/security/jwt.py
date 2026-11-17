@@ -45,7 +45,12 @@ def issue_access_token(
         "aud": settings.jwt_audience,
         "mfa": mfa_verified,
     }
-    return jwt.encode(\n        claims,\n        settings.jwt_private_key,\n        algorithm=ALGORITHM,\n        headers={"kid": settings.jwt_key_id},\n    )
+    return jwt.encode(
+        claims,
+        settings.jwt_private_key,
+        algorithm=ALGORITHM,
+        headers={"kid": settings.jwt_key_id},
+    )
 
 
 def decode_access_token(settings: Settings, token: str) -> dict[str, Any]:
