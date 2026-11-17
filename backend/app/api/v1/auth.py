@@ -181,7 +181,7 @@ def password_change(
 
 
 @router.post("/mfa/enrol", response_model=MfaEnrollResponse)
-def mfa_enrol(request: Request, principal: CurrentPrincipal, session: SessionDep, settings: Annotated[Settings, get_settings]) -> MfaEnrollResponse:
+def mfa_enrol(request: Request, principal: CurrentPrincipal, session: SessionDep, settings: Annotated[Settings, Depends(get_settings)]) -> MfaEnrollResponse:
     secret, uri = auth_service.begin_mfa_enrolment(
         session, settings, user=principal.user, request_id=getattr(request.state, "request_id", None)
     )
@@ -206,8 +206,10 @@ def mfa_disable(payload: MfaDisableRequest, request: Request, principal: Current
 
 @router.patch("/me", response_model=MeResponse)
 def update_me(payload: UpdateMeRequest, request: Request, principal: CurrentPrincipal, session: SessionDep) -> MeResponse:
-    principal.user.full_name = payload.full_name.strip()
-    from app.repositories.audit import append_audit
-    append_audit(session, action="auth.profile.updated", result="allowed", actor_id=principal.user.id, actor_role=principal.user.global_role.value, request_id=getattr(request.state, "request_id", None), resource_type="user", resource_id=principal.user.id)
-    session.commit()
+    auth_service.update_profile(
+        session,
+        user=principal.user,
+        full_name=payload.full_name,
+        request_id=getattr(request.state, "request_id", None),
+    )
     return me(principal)
