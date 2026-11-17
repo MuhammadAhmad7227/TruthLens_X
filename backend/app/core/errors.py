@@ -203,6 +203,10 @@ class MFARequiredError(AuthorisationError):
     title = "Multi-factor authentication required"
     audit_reason: AuditReason | None = None
 
+    def __init__(self, detail: str | None = None, *, challenge_token: str | None = None) -> None:
+        super().__init__(detail)
+        self.challenge_token = challenge_token
+
 
 class RateLimitedError(TruthLensError):
     status = 429
