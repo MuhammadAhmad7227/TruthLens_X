@@ -8,8 +8,7 @@ from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.api.v1.deps import SessionDep
-from app.core.config import get_settings, Settings
-from app.services.auth import Principal, authenticate_access_token
+from app.core.config import Settings, get_settings
 from app.core.errors import UnauthenticatedError
 from app.services.auth import Principal, authenticate_access_token
 
