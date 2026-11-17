@@ -5,13 +5,14 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Cookie, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.v1.auth_deps import CurrentPrincipal
 from app.api.v1.auth_schemas import (
     LoginRequest,
     LoginResponse,
+    UpdateMeRequest,
     MeResponse,
     MfaCodeRequest,
     MfaDisableRequest,
@@ -50,7 +51,7 @@ def login(
     request: Request,
     response: Response,
     session: SessionDep,
-    settings: Annotated[Settings, get_settings],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> LoginResponse:
     try:
         user, row, access, refresh = auth_service.login(
@@ -63,7 +64,7 @@ def login(
             request_id=getattr(request.state, "request_id", None),
         )
     except MFARequiredError as exc:
-        challenge = str(exc.context["challenge_token"])
+        challenge = exc.challenge_token or ""
         response.headers["X-MFA-Challenge"] = challenge
         raise
     assert user is not None and row is not None and access is not None and refresh is not None
@@ -81,7 +82,7 @@ def verify_mfa(
     request: Request,
     response: Response,
     session: SessionDep,
-    settings: Annotated[Settings, get_settings],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> LoginResponse:
     user, row, access, refresh = auth_service.verify_mfa(
         session,
@@ -207,9 +208,9 @@ def mfa_disable(payload: MfaDisableRequest, request: Request, principal: Current
 
 
 @router.patch("/me", response_model=MeResponse)
-def update_me(request: Request, principal: CurrentPrincipal, session: SessionDep, full_name: str | None = None) -> MeResponse:
-    if full_name is not None:
-        principal.user.full_name = full_name.strip()
-        auth_service.append_audit(session, action="auth.profile.updated", result="allowed", actor_id=principal.user.id, actor_role=principal.user.global_role.value, request_id=getattr(request.state, "request_id", None), resource_type="user", resource_id=principal.user.id)
-        session.commit()
+def update_me(payload: UpdateMeRequest, request: Request, principal: CurrentPrincipal, session: SessionDep) -> MeResponse:
+    principal.user.full_name = payload.full_name.strip()
+    from app.repositories.audit import append_audit
+    append_audit(session, action="auth.profile.updated", result="allowed", actor_id=principal.user.id, actor_role=principal.user.global_role.value, request_id=getattr(request.state, "request_id", None), resource_type="user", resource_id=principal.user.id)
+    session.commit()
     return me(principal)
