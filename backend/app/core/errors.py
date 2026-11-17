@@ -48,6 +48,7 @@ ErrorCode = Literal[
     "RATE_LIMITED",
     "INTERNAL_ERROR",
     "DEPENDENCY_UNAVAILABLE",
+    "RATE_LIMITED",
     "CONFIGURATION_ERROR",
     "EXTERNAL_AI_DISABLED",
     "EGRESS_CONFIRMATION_REQUIRED",
@@ -187,6 +188,31 @@ class AuthorisationError(TruthLensError):
     error_code: ErrorCode = "FORBIDDEN_CAPABILITY"
     title = "Access denied"
     audit_reason: AuditReason | None = "FORBIDDEN_CAPABILITY"
+
+
+class TokenExpiredError(AuthorisationError):
+    status = 401
+    error_code: ErrorCode = "TOKEN_EXPIRED"
+    title = "Access token expired"
+    audit_reason: AuditReason | None = None
+
+
+class MFARequiredError(AuthorisationError):
+    status = 401
+    error_code: ErrorCode = "MFA_REQUIRED"
+    title = "Multi-factor authentication required"
+    audit_reason: AuditReason | None = None
+
+
+class RateLimitedError(TruthLensError):
+    status = 429
+    error_code: ErrorCode = "RATE_LIMITED"
+    title = "Rate limit exceeded"
+    audit_reason: AuditReason | None = None
+
+    def __init__(self, detail: str | None = None, *, retry_after: int = 60) -> None:
+        super().__init__(detail, remediation="Retry after the indicated delay.")
+        self.retry_after = retry_after
 
 
 class UnauthenticatedError(AuthorisationError):
@@ -373,5 +399,8 @@ __all__ = [
     "RetentionNotConfiguredError",
     "TruthLensError",
     "UnauthenticatedError",
+    "TokenExpiredError",
+    "MFARequiredError",
+    "RateLimitedError",
     "ValidationError",
 ]
