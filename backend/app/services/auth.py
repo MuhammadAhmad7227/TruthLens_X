@@ -114,7 +114,7 @@ def login(
         challenge = _challenge(settings, user)
         append_audit(session, action="auth.login.mfa_required", result="allowed", actor_id=user.id, actor_role=user.global_role.value, actor_ip=ip, user_agent=user_agent, request_id=request_id)
         session.commit()
-        raise MFARequiredError("Multi-factor authentication is required", context={"challenge_token": challenge})
+        raise MFARequiredError("Multi-factor authentication is required", challenge_token=challenge)
     session_row, refresh = create_session(session, user=user, ip=ip, user_agent=user_agent, ttl_seconds=settings.refresh_token_ttl_seconds)
     access = issue_access_token(settings, user_id=user.id, session_id=session_row.id, roles=user_roles(user), mfa_verified=False)
     append_audit(session, action="auth.login.succeeded", result="allowed", actor_id=user.id, actor_role=user.global_role.value, actor_ip=ip, user_agent=user_agent, request_id=request_id, resource_type="user", resource_id=user.id)
