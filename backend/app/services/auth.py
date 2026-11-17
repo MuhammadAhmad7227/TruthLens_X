@@ -296,3 +296,11 @@ def authenticate_access_token(session: Session, settings: Settings, token: str) 
     if row.user_id != user.id:
         raise AuthorisationError("Session does not belong to the authenticated user")
     return Principal(user=user, session=row, claims=claims)
+
+
+def admin_unlock_by_id(session: Session, *, actor: User, target_id: UUID, request_id: str | None) -> None:
+    target = session.get(User, target_id)
+    if target is None:
+        from app.core.errors import NotFoundError
+        raise NotFoundError()
+    admin_unlock(session, actor=actor, target=target, request_id=request_id)
