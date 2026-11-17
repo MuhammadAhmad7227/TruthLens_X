@@ -1,3 +1,4 @@
+# fmt: off
 """Ed25519 JWT access-token handling for M3.
 
 This module deliberately depends only on configuration and third-party crypto/JWT libraries.
@@ -88,3 +89,5 @@ def decode_access_token(settings: Settings, token: str) -> dict[str, Any]:
     except ValueError as exc:
         raise UnauthenticatedError("Invalid access token identifiers") from exc
     return claims
+
+# fmt: on
