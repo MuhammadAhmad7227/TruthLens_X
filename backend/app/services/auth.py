@@ -1,3 +1,4 @@
+# fmt: off
 """Authentication, session, lockout and MFA business rules."""
 
 from __future__ import annotations
@@ -323,3 +324,5 @@ def update_profile(session: Session, *, user: User, full_name: str, request_id: 
         resource_id=user.id,
     )
     session.commit()
+
+# fmt: on
