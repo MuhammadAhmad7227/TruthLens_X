@@ -16,7 +16,8 @@ from jwt import InvalidTokenError
 from app.core.config import Settings
 from app.core.errors import TokenExpiredError, UnauthenticatedError
 
-ALGORITHM = "EdDSA"\nMAX_ACCESS_TOKEN_TTL_SECONDS = 15 * 60
+ALGORITHM = "EdDSA"
+MAX_ACCESS_TOKEN_TTL_SECONDS = 15 * 60
 
 
 def issue_access_token(
