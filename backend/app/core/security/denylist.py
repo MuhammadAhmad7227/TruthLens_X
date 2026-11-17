@@ -8,9 +8,9 @@ swapped for Redis without changing authentication business logic.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
 from threading import RLock
 from time import monotonic
+from typing import Protocol
 
 
 class JtiDenylist(Protocol):
