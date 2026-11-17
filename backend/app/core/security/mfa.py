@@ -6,7 +6,8 @@ import hashlib
 import os
 
 import pyotp
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM\n\n_NONCE_BYTES = 12\n_MIN_ENCRYPTED_BYTES = _NONCE_BYTES + 16
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+\n_NONCE_BYTES = 12\n_MIN_ENCRYPTED_BYTES = _NONCE_BYTES + 16
 
 
 def _key(secret: str) -> bytes:
