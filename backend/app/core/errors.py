@@ -375,6 +375,8 @@ class InternalError(TruthLensError):
 
 
 __all__ = [
+    "ERROR_TYPE_BASE",
+    "PROBLEM_CONTENT_TYPE",
     "AssistantUnavailableError",
     "AuditReason",
     "AuthorisationError",
@@ -387,7 +389,6 @@ __all__ = [
     "EgressGrantExpiredError",
     "EngineError",
     "ErrorCode",
-    "ERROR_TYPE_BASE",
     "ExternalAIDisabledError",
     "FieldError",
     "ForbiddenCaseAccessError",
@@ -398,7 +399,6 @@ __all__ = [
     "LegalHoldError",
     "MFARequiredError",
     "NotFoundError",
-    "PROBLEM_CONTENT_TYPE",
     "ProblemDetail",
     "RateLimitedError",
     "RetentionNotConfiguredError",
