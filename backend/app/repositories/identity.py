@@ -32,7 +32,6 @@ def create_session(
     raw = secrets.token_urlsafe(48)
     now = datetime.now(UTC)
     row = UserSession(
-        id=uuid4(),
         user_id=user.id,
         refresh_token_hash=hashlib.sha256(raw.encode()).hexdigest(),
         family_id=uuid4(),
