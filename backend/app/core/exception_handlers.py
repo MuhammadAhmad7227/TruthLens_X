@@ -19,6 +19,7 @@ import structlog
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from app.core.errors import RateLimitedError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ExceptionHandler
 
@@ -113,7 +114,10 @@ async def handle_truthlens_error(request: Request, exc: TruthLensError) -> JSONR
         context=exc.context,
         exc_info=exc if exc.log_with_traceback else None,
     )
-    return _problem_response(problem)
+    response = _problem_response(problem)
+    if isinstance(exc, RateLimitedError):
+        response.headers["Retry-After"] = str(exc.retry_after)
+    return response
 
 
 async def handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
