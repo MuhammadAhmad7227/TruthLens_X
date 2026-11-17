@@ -26,10 +26,10 @@ from app.core.errors import (
     PROBLEM_CONTENT_TYPE,
     ErrorCode,
     FieldError,
-    ProblemDetail,
-    TruthLensError,
     MFARequiredError,
+    ProblemDetail,
     RateLimitedError,
+    TruthLensError,
 )
 
 logger = structlog.get_logger(__name__)
