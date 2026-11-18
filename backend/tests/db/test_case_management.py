@@ -73,6 +73,7 @@ def test_case_create_assigns_owner_and_unique_human_number(db_session: Session) 
     assert member is not None
     assert member.case_role is CaseRole.OWNER
 
+
 def test_m4_role_matrix_is_seeded(db_session: Session) -> None:
     expected = {
         "view_case": {
@@ -99,6 +100,7 @@ def test_m4_role_matrix_is_seeded(db_session: Session) -> None:
             ).all()
         }
         assert found == roles
+
 
 def test_cross_case_access_is_non_enumerable_and_audited(db_session: Session) -> None:
     owner = _user(db_session, GlobalRole.INVESTIGATOR)
