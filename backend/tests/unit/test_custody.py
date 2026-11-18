@@ -9,6 +9,7 @@ import pytest
 
 from app.core.errors import ValidationError
 from app.models.enums import CustodyEventType
+from app.models.evidence import CustodyEvent
 from app.services import custody
 
 
@@ -55,7 +56,7 @@ def test_canonical_digest_is_deterministic() -> None:
         prev_hash="0" * 64,
         record_hash="b" * 64,
     )
-    first = custody.record_digest(event)
+    first = custody.record_digest(cast(CustodyEvent, event))
     second = custody.record_digest(event)
     assert first == second
     assert len(first) == 64
@@ -65,10 +66,8 @@ def test_append_event_creates_genesis_record() -> None:
     session = FakeSession()
     evidence = _evidence()
     actor = _actor()
-    custody.latest_event = lambda *args, **kwargs: None
-
-    event = custody.append_event(
-        session,
+        event = custody.append_event(
+        cast(Session, session),
         actor=actor,
         case_id=evidence.case_id,
         evidence=evidence,
@@ -144,7 +143,7 @@ def test_verify_chain_detects_a_broken_hash(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(custody, "authorize_case_access", lambda *args, **kwargs: None)
     monkeypatch.setattr(custody, "list_events", lambda *args, **kwargs: [event])
     valid, broken = custody.verify_chain(
-        FakeSession(), actor=actor, case_id=case_id
+        cast(Session, FakeSession()), actor=actor, case_id=case_id
     )
     assert not valid
     assert broken == event.id
