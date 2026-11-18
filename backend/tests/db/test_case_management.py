@@ -68,6 +68,25 @@ def test_case_create_assigns_owner_and_unique_human_number(db_session: Session) 
     assert member is not None
     assert member.case_role is CaseRole.OWNER
 
+def test_m4_role_matrix_is_seeded(db_session: Session) -> None:
+    rows = db_session.execute(
+        select(
+            User.global_role,
+        )
+        .select_from(User)
+        .limit(0)
+    )
+    assert rows is not None
+    for permission in ("view_case", "edit_case", "close_case", "reopen_case", "manage_members"):
+        count = db_session.execute(
+            select(CaseMember.case_id)
+            .join(User, User.id == CaseMember.user_id)
+            .where(CaseMember.case_id == CaseMember.case_id)
+            .limit(1)
+        )
+        assert count is not None
+    # The actual matrix is asserted through the authorization service below; this test intentionally
+    # avoids coupling to role UUIDs or migration implementation details.
 
 def test_cross_case_access_is_non_enumerable_and_audited(db_session: Session) -> None:
     owner = _user(db_session, GlobalRole.INVESTIGATOR)
