@@ -1,0 +1,133 @@
+"""Durable Celery job lifecycle."""
+from __future__ import annotations
+
+import socket
+import time
+from datetime import UTC, datetime
+from typing import Any
+from uuid import UUID
+
+from celery import Task
+from sqlalchemy import select
+
+from app.db.session import get_session_factory
+from app.models.analysis import AnalysisJob
+from app.models.enums import JobStatus
+from app.tasks.celery_app import celery_app
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _get_job(session: Any, job_id: UUID) -> AnalysisJob:
+    job = session.scalar(select(AnalysisJob).where(AnalysisJob.id == job_id))
+    if job is None:
+        raise LookupError(f"Analysis job {job_id} does not exist")
+    return job
+
+
+def _mark(session: Any, job: AnalysisJob, status: JobStatus, **fields: Any) -> None:
+    job.status = status
+    for key, value in fields.items():
+        setattr(job, key, value)
+    session.commit()
+
+
+class JobTask(Task[Any, Any]):
+    max_retries = 3
+    acks_late = True
+
+    def on_retry(
+        self,
+        exc: BaseException,
+        task_id: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        einfo: Any,
+    ) -> None:
+        session = get_session_factory()()
+        try:
+            job = _get_job(session, UUID(str(args[0])))
+            _mark(
+                session,
+                job,
+                JobStatus.RETRYING,
+                celery_task_id=task_id,
+                progress_message=f"Retrying after {type(exc).__name__}",
+            )
+        finally:
+            session.close()
+
+    def on_failure(
+        self,
+        exc: BaseException,
+        task_id: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        einfo: Any,
+    ) -> None:
+        session = get_session_factory()()
+        try:
+            job = _get_job(session, UUID(str(args[0])))
+            _mark(
+                session,
+                job,
+                JobStatus.DEAD_LETTER,
+                celery_task_id=task_id,
+                finished_at=_now(),
+                error_class=type(exc).__name__,
+                error_detail={"message": str(exc)[:1000]},
+                progress_pct=100,
+                progress_message="Dead-lettered after retry limit",
+            )
+        finally:
+            session.close()
+
+
+@celery_app.task(bind=True, base=JobTask, name="truthlens.jobs.execute", ignore_result=True)
+def execute_job(self: JobTask, job_id: str) -> None:
+    session = get_session_factory()()
+    started = time.monotonic()
+    job: AnalysisJob | None = None
+    try:
+        job = _get_job(session, UUID(job_id))
+        if job.status is JobStatus.CANCELLED:
+            return
+        _mark(
+            session,
+            job,
+            JobStatus.RUNNING,
+            celery_task_id=self.request.id,
+            worker_id=socket.gethostname(),
+            attempt=job.attempt + 1,
+            started_at=_now(),
+            progress_pct=1,
+            progress_message="Worker accepted job",
+        )
+        if not job.pipeline.startswith("maintenance."):
+            raise RuntimeError(f"Unsupported pipeline in M7: {job.pipeline}")
+        _mark(
+            session,
+            job,
+            JobStatus.SUCCEEDED,
+            finished_at=_now(),
+            progress_pct=100,
+            progress_message="Completed",
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
+    except Exception as exc:
+        if job is None:
+            raise
+        job.error_class = type(exc).__name__
+        job.error_detail = {"message": str(exc)[:1000]}
+        job.progress_message = "Retry scheduled"
+        job.status = JobStatus.RETRYING
+        session.commit()
+        raise self.retry(
+            exc=exc,
+            countdown=30,
+            max_retries=3,
+        ) from exc
+    finally:
+        session.close()
