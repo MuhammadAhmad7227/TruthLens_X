@@ -24,7 +24,7 @@ dependencies = [
     "PyJWT==2.15.1",               # MIT — JWT/JWS
     "cryptography==50.0.0",        # Apache-2.0/BSD — Ed25519 and AES-GCM
     "argon2-cffi==25.1.0",
-    "python-multipart==0.0.20",         # MIT — Argon2id password hashing
+    "python-multipart==0.0.31",         # MIT — Argon2id password hashing
     "pyotp==2.9.0",                # MIT — TOTP MFA
 ]
 
