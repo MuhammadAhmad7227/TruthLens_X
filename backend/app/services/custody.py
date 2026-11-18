@@ -1,3 +1,4 @@
+# ruff: isort: skip_file
 """M6 append-only custody ledger and deterministic hash-chain verification."""
 from __future__ import annotations
 
