@@ -57,7 +57,7 @@ def test_canonical_digest_is_deterministic() -> None:
         record_hash="b" * 64,
     )
     first = custody.record_digest(cast(CustodyEvent, event))
-    second = custody.record_digest(event)
+    second = custody.record_digest(cast(CustodyEvent, event))
     assert first == second
     assert len(first) == 64
 
@@ -77,7 +77,7 @@ def test_append_event_creates_genesis_record() -> None:
 
     assert event.sequence == 1
     assert event.prev_hash == "0" * 64
-    assert event.record_hash == custody.record_digest(event)
+    assert event.record_hash == custody.record_digest(cast(CustodyEvent, event))
     assert session.added == [event]
 
 
@@ -171,7 +171,7 @@ def test_verify_chain_accepts_a_valid_record(monkeypatch: pytest.MonkeyPatch) ->
         prev_hash="0" * 64,
         record_hash="",
     )
-    event.record_hash = custody.record_digest(event)
+    event.record_hash = custody.record_digest(cast(CustodyEvent, event))
     monkeypatch.setattr(custody, "authorize_case_access", lambda *args, **kwargs: None)
     monkeypatch.setattr(custody, "list_events", lambda *args, **kwargs: [event])
     valid, broken = custody.verify_chain(
