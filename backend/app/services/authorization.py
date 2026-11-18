@@ -63,6 +63,7 @@ def authorize_case_access(
             reason="FORBIDDEN_CASE_ACCESS",
             resource_type="case",
             resource_id=case_id,
+            case_id=case_id,
             metadata={"capability": capability},
         )
         session.commit()
