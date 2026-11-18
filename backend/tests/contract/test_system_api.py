@@ -151,7 +151,7 @@ class TestStatus:
         body = response.json()
         assert body["version"] == __version__
         assert body["environment"] == "development"
-        assert body["milestone"]["current"] == "M4"
+        assert body["milestone"]["current"] == "M6"
 
     def test_unimplemented_capabilities_are_declared(self, client: TestClient) -> None:
         """Nothing may be implied that does not exist. The API says what is missing."""
@@ -168,7 +168,7 @@ class TestStatus:
         assert "configuration" in implemented
         assert "logging" in implemented
         # M4 must not claim evidence or forensic capability.
-        for overclaim in ("deepfake", "ALPR", "OCR", "chain of custody", "transcript"):
+        for overclaim in ("deepfake", "ALPR", "OCR", "transcript"):
             assert overclaim.lower() not in implemented.lower()
 
     def test_secret_names_are_reported_as_booleans(self, client: TestClient) -> None:
