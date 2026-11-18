@@ -51,15 +51,18 @@ def list_cases_endpoint(
     q: str | None = None,
     sensitivity: str | None = None,
 ) -> list[CaseResponse]:
-    return [_response(c) for c in case_management.list_cases(
-        session,
-        actor=principal.user,
-        status=status_filter,
-        lead_id=lead,
-        sensitivity=sensitivity,
-        tag=tag,
-        query=q,
-    )]
+    return [
+        _response(c)
+        for c in case_management.list_cases(
+            session,
+            actor=principal.user,
+            status=status_filter,
+            lead_id=lead,
+            sensitivity=sensitivity,
+            tag=tag,
+            query=q,
+        )
+    ]
 
 
 @router.post("/cases", response_model=CaseResponse, status_code=status.HTTP_201_CREATED)
