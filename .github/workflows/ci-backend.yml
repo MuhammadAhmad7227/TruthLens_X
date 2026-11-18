@@ -85,7 +85,7 @@ jobs:
       # Formatting is checked, not applied: a commit that is unformatted is a review defect, and
       # letting CI reformat silently would hide it.
       - name: Format check
-        run: ruff format --diff . || true
+        run: ruff format --check .
 
       - name: Type check (strict)
         run: mypy app tests
