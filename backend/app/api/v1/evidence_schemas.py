@@ -1,3 +1,4 @@
+# ruff: isort: skip_file
 # fmt: off
 """M5 evidence API schemas."""
 from __future__ import annotations
@@ -45,13 +46,13 @@ class EvidenceListResponse(BaseModel):
 
 
 class EvidenceUploadMetadata(BaseModel):
-    item_type: EvidenceType
+    item_type: str
     acquisition_method: str | None = Field(default=None, max_length=500)
     acquisition_device: str | None = Field(default=None, max_length=500)
     collection_location: str | None = Field(default=None, max_length=1000)
     notes: str | None = Field(default=None, max_length=5000)
     tags: list[str] = Field(default_factory=list, max_length=50)
-    sensitivity_override: Sensitivity | None = None
+    sensitivity_override: str | None = None
     acquired_at: datetime | None = None
 
 
