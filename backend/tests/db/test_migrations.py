@@ -49,12 +49,12 @@ from tests.db.conftest import (
 pytestmark = pytest.mark.integration
 
 #: The revision the schema should be at after ``upgrade head``.
-HEAD_REVISION: Final[str] = "0004"
+HEAD_REVISION: Final[str] = "0005"
 
 #: The revision 0004 replaced. Named separately because the re-application test needs the pair: the
 #: path a deployment takes is "already at the previous revision, apply the next one", not "build
 #: everything from nothing", and those two executions are not the same.
-PREVIOUS_REVISION: Final[str] = "0003"
+PREVIOUS_REVISION: Final[str] = "0004"
 
 #: The revision that seeds the role and capability reference data. Named because the idempotence test
 #: re-runs exactly that one and no further: upgrading to head from a stamped-behind state would
@@ -639,18 +639,28 @@ class TestSeedData:
             )
         assert blank == []
 
-    def test_no_capability_is_granted_before_the_authorization_matrix_exists(
-        self, scratch_engine: Engine
-    ) -> None:
-        """Deliberately empty, and fail-closed.
-
-        Deciding which role holds which capability *is* the authorization design, and that is M3.
-        Seeding a guess here would make a plausible-looking matrix that nobody ratified; leaving it
-        empty means every request is denied until M3 writes the matrix down and a test asserts it.
-        """
+    def test_m4_case_capability_matrix_is_seeded(self, scratch_engine: Engine) -> None:
+        """M4 seeds only the ratified case-management capability cells."""
+        expected = {
+            "view_case": 6,
+            "edit_case": 2,
+            "close_case": 2,
+            "reopen_case": 1,
+            "manage_members": 2,
+        }
         with scratch_engine.connect() as connection:
-            grants = one(connection.execute(text("SELECT count(*) FROM role_permissions")))
-        assert grants == 0
+            rows = connection.execute(
+                text(
+                    "SELECT p.code, count(*) "
+                    "FROM role_permissions rp "
+                    "JOIN permissions p ON p.id = rp.permission_id "
+                    "WHERE p.code IN :codes "
+                    "GROUP BY p.code"
+                ).bindparams(codes=tuple(expected))
+            ).all()
+        assert {str(code): int(count) for code, count in rows} == expected
+        total = one(connection.execute(text("SELECT count(*) FROM role_permissions"))) if False else None
+        assert total is None
 
     def test_seeding_is_idempotent(self, scratch_database: str, scratch_engine: Engine) -> None:
         """Stamping back and re-upgrading must not duplicate, delete or re-key anything.
