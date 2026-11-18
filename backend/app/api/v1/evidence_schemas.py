@@ -7,7 +7,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import EvidenceStatus, EvidenceType, IntegrityStatus, Sensitivity, SourceType
 
 
 class EvidenceResponse(BaseModel):
@@ -19,11 +18,11 @@ class EvidenceResponse(BaseModel):
     evidence_number: str
     original_filename: str
     sanitized_filename: str
-    item_type: EvidenceType
+    item_type: str
     subcategory: str | None
-    status: EvidenceStatus
-    integrity_status: IntegrityStatus
-    source_type: SourceType
+    status: str
+    integrity_status: str
+    source_type: str
     size_bytes: int
     sha256: str
     detected_mime: str
@@ -35,7 +34,7 @@ class EvidenceResponse(BaseModel):
     collection_location: str | None
     notes: str | None
     tags: list[str]
-    sensitivity_override: Sensitivity | None
+    sensitivity_override: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -58,7 +57,7 @@ class EvidenceUploadMetadata(BaseModel):
 
 class EvidenceIntegrityResponse(BaseModel):
     evidence_id: UUID
-    status: IntegrityStatus
+    status: str
     expected_sha256: str
     actual_sha256: str | None
     checked_at: datetime
