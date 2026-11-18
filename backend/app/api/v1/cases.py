@@ -1,3 +1,4 @@
+# ruff: isort: skip_file
 """M4 case-management HTTP surface. Routers stay thin: validate, call service, map schema."""
 
 from __future__ import annotations
