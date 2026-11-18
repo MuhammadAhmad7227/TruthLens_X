@@ -18,6 +18,7 @@ from app.models.cases import Case, CaseMember
 from app.models.enums import CaseRole, CaseStatus, GlobalRole, Sensitivity, UserStatus
 from app.models.identity import User
 from app.repositories.audit import append_audit
+from app.services.authorization import authorize_case_access
 from app.repositories.cases import (
     case_counts,
     get_case,
@@ -143,8 +144,6 @@ def get_case_by_number_for_user(session: Session, *, actor: User, case_number: s
     case = get_case_by_number(session, case_number)
     if case is None:
         raise NotFoundError()
-    from app.services.authorization import authorize_case_access
-
     authorize_case_access(session, user=actor, case_id=case.id, capability="view_case")
     return case
 
@@ -226,9 +225,8 @@ def update_case(
         lead_member.case_role = CaseRole.LEAD
         case.lead_investigator_id = lead.id
     for key, value in changes.items():
-        if key == "tags" and value is not None:
-            value = sorted(set(value))  # type: ignore[arg-type]
-        setattr(case, key, value)
+        new_value = sorted(set(value)) if key == "tags" and value is not None else value
+        setattr(case, key, new_value)
     _audit(session, actor=actor, action="case.updated", case=case, metadata={"fields": sorted(changes)})
     session.commit()
     session.refresh(case)
