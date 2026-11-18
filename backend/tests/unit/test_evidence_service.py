@@ -77,9 +77,9 @@ def test_ingest_creates_case_scoped_evidence(monkeypatch: pytest.MonkeyPatch, de
 
 
 def test_ingest_rejects_incompatible_magic_bytes(monkeypatch: pytest.MonkeyPatch, dev_settings: Settings) -> None:
-    session = FakeSession()
+    session: Any = FakeSession()
     case_id = uuid4()
-    actor = SimpleNamespace(id=uuid4(), global_role=SimpleNamespace(value="investigator"))
+    actor: Any = SimpleNamespace(id=uuid4(), global_role=SimpleNamespace(value="investigator"))
     monkeypatch.setattr(evidence, "_case_access", lambda *args, **kwargs: SimpleNamespace(case=_case(case_id)))
 
     with pytest.raises(ValidationError, match="incompatible"):
@@ -96,9 +96,9 @@ def test_ingest_rejects_incompatible_magic_bytes(monkeypatch: pytest.MonkeyPatch
 
 
 def test_ingest_enforces_case_quota(monkeypatch: pytest.MonkeyPatch, dev_settings: Settings) -> None:
-    session = FakeSession()
+    session: Any = FakeSession()
     case_id = uuid4()
-    actor = SimpleNamespace(id=uuid4(), global_role=SimpleNamespace(value="investigator"))
+    actor: Any = SimpleNamespace(id=uuid4(), global_role=SimpleNamespace(value="investigator"))
     monkeypatch.setattr(
         evidence,
         "_case_access",
@@ -128,7 +128,7 @@ def test_validate_type_allows_other() -> None:
 
 
 def test_prepare_download_audits_and_returns_stream(monkeypatch: pytest.MonkeyPatch, dev_settings: Settings) -> None:
-    session = FakeSession()
+    session: Any = FakeSession()
     item: Any = SimpleNamespace(
         id=uuid4(),
         case_id=uuid4(),
@@ -137,7 +137,7 @@ def test_prepare_download_audits_and_returns_stream(monkeypatch: pytest.MonkeyPa
             detected_mime="application/pdf",
         ),
     )
-    actor = SimpleNamespace(id=uuid4(), global_role=SimpleNamespace(value="investigator"))
+    actor: Any = SimpleNamespace(id=uuid4(), global_role=SimpleNamespace(value="investigator"))
     monkeypatch.setattr(evidence, "get_one", lambda *args, **kwargs: item)
     monkeypatch.setattr(evidence, "append_audit", lambda *args, **kwargs: None)
     monkeypatch.setattr(evidence, "iter_object", lambda **kwargs: iter([b"data"]))
