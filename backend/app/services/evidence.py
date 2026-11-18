@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import BinaryIO, Iterator
+from collections.abc import Iterator
 from contextlib import suppress
 from datetime import UTC, datetime
+from typing import BinaryIO
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
@@ -21,7 +22,7 @@ from app.core.storage import (
     stream_to_quarantine,
 )
 from app.models.cases import Case
-from app.models.enums import EvidenceStatus, EvidenceType, IntegrityStatus, SourceType
+from app.models.enums import EvidenceStatus, EvidenceType, IntegrityStatus, Sensitivity, SourceType
 from app.models.evidence import EvidenceItem, IntegrityCheck, PhysicalObject
 from app.models.identity import User
 from app.repositories.audit import append_audit
@@ -100,7 +101,7 @@ def ingest(
     collection_location: str | None = None,
     notes: str | None = None,
     tags: list[str] | None = None,
-    sensitivity_override=None,
+    sensitivity_override: Sensitivity | None = None,
     acquired_at: datetime | None = None,
 ) -> EvidenceItem:
     access = _case_access(session, actor, case_id)
