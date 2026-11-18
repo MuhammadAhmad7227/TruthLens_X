@@ -66,7 +66,7 @@ def test_append_event_creates_genesis_record() -> None:
     session = FakeSession()
     evidence = _evidence()
     actor = _actor()
-        event = custody.append_event(
+    event = custody.append_event(
         cast(Session, session),
         actor=actor,
         case_id=evidence.case_id,
