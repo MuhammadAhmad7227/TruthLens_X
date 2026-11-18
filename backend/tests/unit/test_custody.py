@@ -85,7 +85,7 @@ def test_append_event_creates_genesis_record() -> None:
 def test_append_event_rejects_missing_actor() -> None:
     with pytest.raises(ValidationError, match="requires"):
         custody.append_event(
-            FakeSession(),
+            cast(Any, FakeSession()),
             actor=None,
             case_id=uuid4(),
             evidence=_evidence(),
