@@ -84,7 +84,7 @@ def test_append_event_creates_genesis_record() -> None:
 def test_append_event_rejects_missing_actor() -> None:
     with pytest.raises(ValidationError, match="requires"):
         custody.append_event(
-            FakeSession(),
+            cast(Session, FakeSession()),
             actor=None,
             case_id=uuid4(),
             evidence=_evidence(),
@@ -96,7 +96,7 @@ def test_append_event_rejects_missing_actor() -> None:
 def test_append_event_requires_purpose_for_download() -> None:
     with pytest.raises(ValidationError, match="purpose"):
         custody.append_event(
-            FakeSession(),
+            cast(Session, FakeSession()),
             actor=_actor(),
             case_id=_evidence().case_id,
             evidence=_evidence(),
@@ -109,7 +109,7 @@ def test_append_event_rejects_cross_case_evidence() -> None:
     evidence = _evidence()
     with pytest.raises(ValidationError, match="does not belong"):
         custody.append_event(
-            FakeSession(),
+            cast(Session, FakeSession()),
             actor=_actor(),
             case_id=uuid4(),
             evidence=evidence,
