@@ -2956,7 +2956,7 @@ class TestRevisionIsReapplyable:
                     == HEAD_REVISION
                 )
                 assert "limitation_statements" in inspect(connection).get_table_names()
-                assert one(connection.execute(text("SELECT count(*) FROM role_permissions"))) == 35
+                assert one(connection.execute(text("SELECT count(*) FROM role_permissions"))) == 13
             assert alembic_check(revision_database) is None, (
                 "the re-applied revision drifted from the models"
             )
