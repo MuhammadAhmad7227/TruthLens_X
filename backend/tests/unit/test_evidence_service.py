@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import io
 from types import SimpleNamespace
+from typing import Any
 from uuid import uuid4
 
 import pytest
 
+from app.core.config import Settings
 from app.core.errors import ValidationError
 from app.models.enums import EvidenceStatus, EvidenceType, IntegrityStatus
 from app.services import evidence
@@ -14,12 +16,12 @@ from app.services import evidence
 
 class FakeSession:
     def __init__(self) -> None:
-        self.added = []
+        self.added: list[Any] = []
 
-    def execute(self, *args, **kwargs):
+    def execute(self, *args: Any, **kwargs: Any) -> None:
         return None
 
-    def add(self, value) -> None:
+    def add(self, value: Any) -> None:
         self.added.append(value)
 
     def flush(self) -> None:
@@ -28,11 +30,11 @@ class FakeSession:
     def commit(self) -> None:
         return None
 
-    def refresh(self, value) -> None:
+    def refresh(self, value: Any) -> None:
         return None
 
 
-def _case(case_id, quota=None):
+def _case(case_id: Any, quota: int | None = None) -> Any:
     return SimpleNamespace(
         id=case_id,
         status=SimpleNamespace(value="draft"),
@@ -42,10 +44,10 @@ def _case(case_id, quota=None):
     )
 
 
-def test_ingest_creates_case_scoped_evidence(monkeypatch, dev_settings) -> None:
-    session = FakeSession()
+def test_ingest_creates_case_scoped_evidence(monkeypatch: pytest.MonkeyPatch, dev_settings: Settings) -> None:
+    session: Any = FakeSession()
     case_id = uuid4()
-    actor = SimpleNamespace(id=uuid4(), global_role=SimpleNamespace(value="investigator"))
+    actor: Any = SimpleNamespace(id=uuid4(), global_role=SimpleNamespace(value="investigator"))
     case = _case(case_id)
     access = SimpleNamespace(case=case)
     monkeypatch.setattr(evidence, "_case_access", lambda *args, **kwargs: access)
@@ -74,7 +76,7 @@ def test_ingest_creates_case_scoped_evidence(monkeypatch, dev_settings) -> None:
     assert len(session.added) == 2
 
 
-def test_ingest_rejects_incompatible_magic_bytes(monkeypatch, dev_settings) -> None:
+def test_ingest_rejects_incompatible_magic_bytes(monkeypatch: pytest.MonkeyPatch, dev_settings: Settings) -> None:
     session = FakeSession()
     case_id = uuid4()
     actor = SimpleNamespace(id=uuid4(), global_role=SimpleNamespace(value="investigator"))
@@ -93,7 +95,7 @@ def test_ingest_rejects_incompatible_magic_bytes(monkeypatch, dev_settings) -> N
         )
 
 
-def test_ingest_enforces_case_quota(monkeypatch, dev_settings) -> None:
+def test_ingest_enforces_case_quota(monkeypatch: pytest.MonkeyPatch, dev_settings: Settings) -> None:
     session = FakeSession()
     case_id = uuid4()
     actor = SimpleNamespace(id=uuid4(), global_role=SimpleNamespace(value="investigator"))
@@ -125,9 +127,9 @@ def test_validate_type_allows_other() -> None:
     evidence._validate_type(EvidenceType.OTHER.value, "application/octet-stream")
 
 
-def test_prepare_download_audits_and_returns_stream(monkeypatch, dev_settings) -> None:
+def test_prepare_download_audits_and_returns_stream(monkeypatch: pytest.MonkeyPatch, dev_settings: Settings) -> None:
     session = FakeSession()
-    item = SimpleNamespace(
+    item: Any = SimpleNamespace(
         id=uuid4(),
         case_id=uuid4(),
         physical_object=SimpleNamespace(
