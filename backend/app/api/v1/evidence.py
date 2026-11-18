@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, File, Form, Query, UploadFile
@@ -18,13 +18,12 @@ from app.api.v1.evidence_schemas import (
 )
 from app.core.config import get_settings
 from app.core.errors import ValidationError
-from app.models.evidence import EvidenceItem
 from app.services import evidence as evidence_service
 
 router = APIRouter(prefix="/cases/{case_id}/evidence", tags=["evidence"])
 
 
-def _response(item: EvidenceItem) -> EvidenceResponse:
+def _response(item: Any) -> EvidenceResponse:
     return EvidenceResponse.model_validate(evidence_service._item_response(item))
 
 
