@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -21,6 +21,9 @@ class FakeSession:
 
     def add(self, value: Any) -> None:
         self.added.append(value)
+
+    def scalar(self, *args: Any, **kwargs: Any) -> Any:
+        return None
 
 
 def _evidence() -> Any:
@@ -55,19 +58,17 @@ def test_canonical_digest_is_deterministic() -> None:
         prev_hash="0" * 64,
         record_hash="b" * 64,
     )
-    first = custody.record_digest(event)
+    first = custody.record_digest(cast(Any, event))
     second = custody.record_digest(event)
     assert first == second
     assert len(first) == 64
 
 
 def test_append_event_creates_genesis_record() -> None:
-    session = FakeSession()
-    evidence = _evidence()
-    actor = _actor()
-    custody.latest_event = lambda *args, **kwargs: None
-
-    event = custody.append_event(
+    session: Any = FakeSession()
+    evidence: Any = _evidence()
+    actor: Any = _actor()
+        event = custody.append_event(
         session,
         actor=actor,
         case_id=evidence.case_id,
@@ -172,7 +173,7 @@ def test_verify_chain_accepts_a_valid_record(monkeypatch: pytest.MonkeyPatch) ->
         prev_hash="0" * 64,
         record_hash="",
     )
-    event.record_hash = custody.record_digest(event)
+    event.record_hash = custody.record_digest(cast(Any, event))
     monkeypatch.setattr(custody, "authorize_case_access", lambda *args, **kwargs: None)
     monkeypatch.setattr(custody, "list_events", lambda *args, **kwargs: [event])
     valid, broken = custody.verify_chain(
