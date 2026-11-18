@@ -762,7 +762,7 @@ class TestVerifySchemaHeadAgainstAServer:
             assert status.state == "behind"
             assert status.applied == PREVIOUS_REVISION
             assert status.head == HEAD_REVISION
-            assert "1 revision(s) to apply" in status.detail
+            assert "2 revision(s) to apply" in status.detail
             assert "alembic upgrade head" in status.detail
         finally:
             # Stamp back, do not upgrade: this test only ever touched the version table, and the
