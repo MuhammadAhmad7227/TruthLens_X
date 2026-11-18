@@ -73,7 +73,7 @@ def test_jwt_rejects_hs256() -> None:
             "iss": settings.jwt_issuer,
             "aud": settings.jwt_audience,
         },
-        "not-a-valid-ed25519-key",
+        "not-a-valid-ed25519-key-material-32-bytes",
         algorithm="HS256",
     )
     with pytest.raises(UnauthenticatedError):
