@@ -1,6 +1,6 @@
 """System endpoints: liveness, readiness and platform status.
 
-These are the public health/status endpoints in M4 besides ``/openapi.json`` and ``/``.
+These are the public health/status endpoints in M5 besides ``/openapi.json`` and ``/``.
 See ``docs/API_SPECIFICATION.md`` §2.14.
 
 **Known M4 limitation, stated rather than hidden:** ``/api/v1/status`` remains unauthenticated because
@@ -154,7 +154,7 @@ async def status_endpoint(settings: SettingsDep, registry: ReadinessRegistryDep)
                 "liveness and readiness probes",
                 "security response headers",
                 "authentication, JWT sessions, MFA and admin unlock",
-                "case management, lifecycle, membership and case-level authorization",
+                "evidence ingest and integrity, lifecycle, membership and case-level authorization",
             ],
             "not_yet_implemented": [
                 "evidence ingest and integrity (M5)",

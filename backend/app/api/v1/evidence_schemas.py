@@ -1,0 +1,66 @@
+# ruff: isort: skip_file
+# fmt: off
+"""M5 evidence API schemas."""
+from __future__ import annotations
+
+from datetime import datetime
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+
+class EvidenceResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    case_id: UUID
+    physical_object_id: UUID
+    evidence_number: str
+    original_filename: str
+    sanitized_filename: str
+    item_type: str
+    subcategory: str | None
+    status: str
+    integrity_status: str
+    source_type: str
+    size_bytes: int
+    sha256: str
+    detected_mime: str
+    declared_mime: str | None
+    submitted_by: UUID
+    acquired_at: datetime | None
+    acquisition_method: str | None
+    acquisition_device: str | None
+    collection_location: str | None
+    notes: str | None
+    tags: list[str]
+    sensitivity_override: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class EvidenceListResponse(BaseModel):
+    items: list[EvidenceResponse]
+    total: int
+
+
+class EvidenceUploadMetadata(BaseModel):
+    item_type: str
+    acquisition_method: str | None = Field(default=None, max_length=500)
+    acquisition_device: str | None = Field(default=None, max_length=500)
+    collection_location: str | None = Field(default=None, max_length=1000)
+    notes: str | None = Field(default=None, max_length=5000)
+    tags: list[str] = Field(default_factory=list, max_length=50)
+    sensitivity_override: str | None = None
+    acquired_at: datetime | None = None
+
+
+class EvidenceIntegrityResponse(BaseModel):
+    evidence_id: UUID
+    status: str
+    expected_sha256: str
+    actual_sha256: str | None
+    checked_at: datetime
+
+# fmt: on
