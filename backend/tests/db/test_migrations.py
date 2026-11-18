@@ -49,12 +49,12 @@ from tests.db.conftest import (
 pytestmark = pytest.mark.integration
 
 #: The revision the schema should be at after ``upgrade head``.
-HEAD_REVISION: Final[str] = "0005"
+HEAD_REVISION: Final[str] = "0006"
 
 #: The revision 0004 replaced. Named separately because the re-application test needs the pair: the
 #: path a deployment takes is "already at the previous revision, apply the next one", not "build
 #: everything from nothing", and those two executions are not the same.
-PREVIOUS_REVISION: Final[str] = "0004"
+PREVIOUS_REVISION: Final[str] = "0005"
 
 #: The revision that seeds the role and capability reference data. Named because the idempotence test
 #: re-runs exactly that one and no further: upgrading to head from a stamped-behind state would
@@ -662,7 +662,7 @@ class TestSeedData:
                 )
                 assert count == expected_count
             total = one(connection.execute(text("SELECT count(*) FROM role_permissions")))
-        assert total == 13
+        assert total == 33
 
     def test_seeding_is_idempotent(self, scratch_database: str, scratch_engine: Engine) -> None:
         """Stamping back and re-upgrading must not duplicate, delete or re-key anything.
