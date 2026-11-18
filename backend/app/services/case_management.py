@@ -458,7 +458,6 @@ def revoke_member(
     case_id: UUID,
     user_id: UUID,
 ) -> None:
-
     access = authorize_case_access(
         session, user=actor, case_id=case_id, capability="manage_members"
     )
