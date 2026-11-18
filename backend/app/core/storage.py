@@ -13,6 +13,8 @@ from collections.abc import BinaryIO, Iterator
 from tempfile import NamedTemporaryFile
 from typing import NamedTuple
 
+from app.core.config import Settings
+
 _SIGNATURE_PREFIX_BYTES = 64
 _RIFF_HEADER_BYTES = 12
 _TEXT_RATIO = 0.95
@@ -49,7 +51,7 @@ def detect_mime(prefix: bytes) -> str:
             return "image/webp"
         if prefix[8:12] == b"WAVE":
             return "audio/wav"
-    if len(prefix) >= 12 and prefix[4:8] == b"ftyp":
+    if len(prefix) >= _RIFF_HEADER_BYTES and prefix[4:8] == b"ftyp":
         return "video/mp4"
     for signature, mime in _SIGNATURES:
         if prefix.startswith(signature):
