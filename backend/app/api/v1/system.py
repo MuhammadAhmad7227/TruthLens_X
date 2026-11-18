@@ -1,9 +1,9 @@
 """System endpoints: liveness, readiness and platform status.
 
-These are the public health/status endpoints in M3 besides ``/openapi.json`` and ``/``.
+These are the public health/status endpoints in M4 besides ``/openapi.json`` and ``/``.
 See ``docs/API_SPECIFICATION.md`` §2.14.
 
-**Known M3 limitation, stated rather than hidden:** ``/api/v1/status`` remains unauthenticated because
+**Known M4 limitation, stated rather than hidden:** ``/api/v1/status`` remains unauthenticated because
 it exposes no sensitive data: configuration *names* and booleans, never values. From M19 it requires
 an admin capability. ``secret_names_set()`` is defined to return booleans, so leaking a value through
 this endpoint would require changing that method's signature, not a careless call here.
@@ -145,7 +145,7 @@ async def status_endpoint(settings: SettingsDep, registry: ReadinessRegistryDep)
             "alpr_allow_registry_lookup": settings.alpr_allow_registry_lookup,
         },
         "milestone": {
-            "current": "M3",
+            "current": "M4",
             "implemented": [
                 "configuration with fail-closed validation of ratified decisions",
                 "structured logging with unconditional secret redaction",
@@ -154,9 +154,9 @@ async def status_endpoint(settings: SettingsDep, registry: ReadinessRegistryDep)
                 "liveness and readiness probes",
                 "security response headers",
                 "authentication, JWT sessions, MFA and admin unlock",
+                "case management, lifecycle, membership and case-level authorization",
             ],
             "not_yet_implemented": [
-                "case management (M4)",
                 "evidence ingest and integrity (M5)",
                 "chain of custody (M6)",
                 "background processing with Celery (M7)",
