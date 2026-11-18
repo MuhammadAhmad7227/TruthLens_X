@@ -1,3 +1,4 @@
+# ruff: isort: skip_file
 # fmt: off
 """M5 evidence ingest, integrity and private-storage service."""
 from __future__ import annotations
