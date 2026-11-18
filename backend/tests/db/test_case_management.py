@@ -10,7 +10,11 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.errors import AuthorisationError, ForbiddenCaseAccessError, InvalidStateTransitionError
+from app.core.errors import (
+    AuthorisationError,
+    ForbiddenCaseAccessError,
+    InvalidStateTransitionError,
+)
 from app.core.security.passwords import hash_password
 from app.models.audit import AuditLog
 from app.models.cases import Case, CaseMember
@@ -71,7 +75,14 @@ def test_case_create_assigns_owner_and_unique_human_number(db_session: Session) 
 
 def test_m4_role_matrix_is_seeded(db_session: Session) -> None:
     expected = {
-        "view_case": {"admin", "lead_investigator", "investigator", "analyst", "reviewer", "auditor"},
+        "view_case": {
+            "admin",
+            "lead_investigator",
+            "investigator",
+            "analyst",
+            "reviewer",
+            "auditor",
+        },
         "edit_case": {"admin", "lead_investigator"},
         "close_case": {"admin", "lead_investigator"},
         "reopen_case": {"admin"},
@@ -80,7 +91,7 @@ def test_m4_role_matrix_is_seeded(db_session: Session) -> None:
     for permission_code, roles in expected.items():
         found = {
             str(role_code)
-            for role_code, in db_session.execute(
+            for (role_code,) in db_session.execute(
                 select(Role.code)
                 .join(RolePermission, RolePermission.role_id == Role.id)
                 .join(Permission, Permission.id == RolePermission.permission_id)
@@ -158,7 +169,9 @@ def test_case_lifecycle_and_admin_reopen_are_audited(db_session: Session) -> Non
         can_verify_findings=False,
     )
 
-    transition_case(db_session, actor=lead, case_id=case.id, target=CaseStatus.ACTIVE, reason="opened")
+    transition_case(
+        db_session, actor=lead, case_id=case.id, target=CaseStatus.ACTIVE, reason="opened"
+    )
     transition_case(
         db_session,
         actor=lead,
