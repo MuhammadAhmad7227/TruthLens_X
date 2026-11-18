@@ -6,7 +6,7 @@ at a defined point in the lifecycle.
 
 Milestone M1 wires: configuration validation, structured logging with redaction, request-id
 correlation, security headers, the RFC 9457 error model, and the system (health/readiness/status)
-endpoints. Domain routers arrive from M3 onward.
+endpoints. Domain routers arrive incrementally from M3 onward.
 
 **Startup is fail-closed.** Invalid configuration raises before the server accepts a single request:
 a forensic platform that boots with a security control silently switched off is worse than one that
@@ -34,6 +34,7 @@ logger = get_logger(__name__)
 OPENAPI_TAGS: list[dict[str, Any]] = [
     {"name": "system", "description": "Liveness, readiness and platform status."},
     {"name": "auth", "description": "Authentication, sessions, password and MFA lifecycle."},
+    {"name": "cases", "description": "Investigation case lifecycle, membership and authorization."},
 ]
 
 
@@ -227,14 +228,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {
             "service": resolved.service_name,
             "version": __version__,
-            "status": "milestone-M3-authentication",
+            "status": "milestone-M4-case-management",
             "api": "/api/v1",
             "health": "/healthz",
             "readiness": "/readyz",
             "status_endpoint": "/api/v1/status",
             "docs": "/docs",
             "note": (
-                "TruthLens X is under construction. Authentication is implemented in M3; forensic "
+                "TruthLens X is under construction. Authentication and case management are implemented in M3-M4; forensic "
                 "analysis and evidence handling remain future milestones — see docs/IMPLEMENTATION_ROADMAP.md."
             ),
         }
