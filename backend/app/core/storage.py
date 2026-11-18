@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import hashlib
 import os
-import secrets
+from contextlib import suppress
 from collections.abc import BinaryIO, Iterator
-from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import NamedTuple
+
+_SIGNATURE_PREFIX_BYTES = 64
+_RIFF_HEADER_BYTES = 12
+_TEXT_RATIO = 0.95
 
 from app.core.config import Settings
 
@@ -41,7 +44,7 @@ _SIGNATURES: tuple[tuple[bytes, str], ...] = (
 
 def detect_mime(prefix: bytes) -> str:
     """Detect a conservative MIME type from file-signature bytes."""
-    if prefix.startswith(b"RIFF") and len(prefix) >= 12:
+    if prefix.startswith(b"RIFF") and len(prefix) >= _RIFF_HEADER_BYTES:
         if prefix[8:12] == b"WEBP":
             return "image/webp"
         if prefix[8:12] == b"WAVE":
@@ -57,7 +60,7 @@ def detect_mime(prefix: bytes) -> str:
         raise ValueError("Unsupported or unrecognised file signature") from exc
     if decoded and "\x00" not in decoded and sum(
         ch.isprintable() or ch in "\r\n\t" for ch in decoded
-    ) / len(decoded) > 0.95:
+    ) / len(decoded) > _TEXT_RATIO:
         return "text/plain"
     raise ValueError("Unsupported or unrecognised file signature")
 
@@ -87,7 +90,7 @@ def stream_to_quarantine(
     hasher = hashlib.sha256()
     size = 0
     prefix = bytearray()
-    fd, tmp_name = None, None
+    tmp_name = None
     try:
         with NamedTemporaryFile(
             mode="wb", dir=root, prefix=".upload-", suffix=".part", delete=False
@@ -97,8 +100,8 @@ def stream_to_quarantine(
                 chunk = source.read(settings.hash_block_bytes)
                 if not chunk:
                     break
-                if len(prefix) < 64:
-                    prefix.extend(chunk[: 64 - len(prefix)])
+                if len(prefix) < _SIGNATURE_PREFIX_BYTES:
+                    prefix.extend(chunk[: _SIGNATURE_PREFIX_BYTES - len(prefix)])
                 size += len(chunk)
                 if size > settings.max_upload_bytes:
                     raise ValueError("Upload exceeds the configured maximum size")
@@ -119,10 +122,8 @@ def stream_to_quarantine(
         return StoredUpload(digest, size, detected, declared_mime, relative)
     finally:
         if tmp_name:
-            try:
+            with suppress(FileNotFoundError):
                 os.unlink(tmp_name)
-            except FileNotFoundError:
-                pass
 
 
 def open_object(*, settings: Settings, storage_path: str) -> BinaryIO:
