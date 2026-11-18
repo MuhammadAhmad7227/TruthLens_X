@@ -212,6 +212,25 @@ def _cleanup_unreferenced(settings: Settings, stored: StoredUpload) -> None:
         pass
 
 
+def prepare_download(
+    session: Session, *, settings: Settings, actor: User, evidence_id: UUID, purpose: str
+) -> tuple[EvidenceItem, object]:
+    item = get_one(session, actor=actor, evidence_id=evidence_id)
+    append_audit(
+        session,
+        action="evidence.downloaded",
+        result="success",
+        actor_id=actor.id,
+        actor_role=actor.global_role.value,
+        resource_type="evidence_item",
+        resource_id=item.id,
+        case_id=item.case_id,
+        reason=purpose,
+    )
+    session.commit()
+    return item, iter_object(settings=settings, storage_path=item.physical_object.storage_path)
+
+
 def verify_integrity(
     session: Session, *, settings: Settings, actor: User, evidence_id: UUID
 ) -> IntegrityCheck:
