@@ -14,7 +14,7 @@ from app.core.security.passwords import hash_password
 from app.models.audit import AuditLog
 from app.models.cases import CaseMember
 from app.models.enums import CaseRole, CaseStatus, GlobalRole, Sensitivity, UserStatus
-from app.models.identity import User
+from app.models.identity import Permission, Role, RolePermission, User
 from app.services.authorization import authorize_case_access
 from app.services.case_management import (
     add_member,
@@ -76,8 +76,6 @@ def test_m4_role_matrix_is_seeded(db_session: Session) -> None:
         "reopen_case": {"admin"},
         "manage_members": {"admin", "lead_investigator"},
     }
-    from app.models.identity import Permission, Role, RolePermission
-
     for permission_code, roles in expected.items():
         found = {
             str(role_code)
