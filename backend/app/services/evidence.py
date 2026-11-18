@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import suppress
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -206,10 +207,8 @@ def _cleanup_duplicate_upload(settings: Settings, stored: StoredUpload) -> None:
 
 def _cleanup_unreferenced(settings: Settings, stored: StoredUpload) -> None:
     path = settings.evidence_root / stored.storage_path
-    try:
+    with suppress(FileNotFoundError):
         path.unlink()
-    except FileNotFoundError:
-        pass
 
 
 def prepare_download(
