@@ -156,7 +156,6 @@ async def status_endpoint(settings: SettingsDep, registry: ReadinessRegistryDep)
                 "authentication, JWT sessions, MFA and admin unlock",
             ],
             "not_yet_implemented": [
-                "authentication, MFA and authorisation (M3)",
                 "case management (M4)",
                 "evidence ingest and integrity (M5)",
                 "chain of custody (M6)",
