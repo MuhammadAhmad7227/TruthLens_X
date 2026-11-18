@@ -1,3 +1,4 @@
+# ruff: isort: skip_file
 # fmt: off
 """M5 evidence ingest, integrity and private-storage service."""
 from __future__ import annotations
@@ -22,7 +23,7 @@ from app.core.storage import (
     stream_to_quarantine,
 )
 from app.models.cases import Case
-from app.models.enums import EvidenceStatus, EvidenceType, IntegrityStatus, Sensitivity, SourceType
+from app.models.enums import CustodyEventType, EvidenceStatus, EvidenceType, IntegrityStatus, Sensitivity, SourceType
 from app.models.evidence import EvidenceItem, IntegrityCheck, PhysicalObject
 from app.models.identity import User
 from app.repositories.audit import append_audit
@@ -33,10 +34,15 @@ from app.repositories.evidence import (
     next_evidence_number,
 )
 from app.services.authorization import CaseAccess, authorize_case_access
+from app.services.custody import append_event
 
 
-def _case_access(session: Session, actor: User, case_id: UUID) -> CaseAccess:
-    return authorize_case_access(session, user=actor, case_id=case_id, capability="edit_case")
+def _case_access(
+    session: Session, actor: User, case_id: UUID, capability: str = "upload_evidence"
+) -> CaseAccess:
+    return authorize_case_access(
+        session, user=actor, case_id=case_id, capability=capability
+    )
 
 
 def _validate_type(item_type: str, mime: str) -> None:
@@ -183,6 +189,14 @@ def ingest(
     physical.reference_count += 1
     case.storage_used_bytes += stored.size_bytes
     session.add(item)
+    append_event(
+        session,
+        actor=actor,
+        case_id=case_id,
+        evidence=item,
+        event_type=CustodyEventType.INGESTED,
+        purpose="evidence acquisition",
+    )
     append_audit(
         session,
         action="evidence.ingested",
@@ -216,7 +230,15 @@ def _cleanup_unreferenced(settings: Settings, stored: StoredUpload) -> None:
 def prepare_download(
     session: Session, *, settings: Settings, actor: User, evidence_id: UUID, purpose: str
 ) -> tuple[EvidenceItem, Iterator[bytes]]:
-    item = get_one(session, actor=actor, evidence_id=evidence_id)
+    item = get_content(session, actor=actor, evidence_id=evidence_id)
+    append_event(
+        session,
+        actor=actor,
+        case_id=item.case_id,
+        evidence=item,
+        event_type=CustodyEventType.DOWNLOADED,
+        purpose=purpose,
+    )
     append_audit(
         session,
         action="evidence.downloaded",
@@ -265,6 +287,15 @@ def verify_integrity(
     item.integrity_last_checked_at = checked_at
     if result is not IntegrityStatus.VERIFIED:
         item.status = EvidenceStatus.INTEGRITY_FAILED
+        append_event(
+            session,
+            actor=actor,
+            case_id=item.case_id,
+            evidence=item,
+            event_type=CustodyEventType.INTEGRITY_ALERT,
+            purpose="integrity verification",
+            detail={"expected_sha256": expected, "actual_sha256": actual},
+        )
         append_audit(
             session,
             action="evidence.integrity_failed",
@@ -278,6 +309,14 @@ def verify_integrity(
             metadata={"expected_sha256": expected, "actual_sha256": actual},
         )
     else:
+        append_event(
+            session,
+            actor=actor,
+            case_id=item.case_id,
+            evidence=item,
+            event_type=CustodyEventType.HASH_VERIFIED,
+            purpose="integrity verification",
+        )
         append_audit(
             session,
             action="evidence.integrity_verified",
@@ -302,7 +341,17 @@ def get_one(session: Session, *, actor: User, evidence_id: UUID) -> EvidenceItem
     item = get_evidence(session, evidence_id)
     if item is None:
         raise NotFoundError()
-    _case_access(session, actor, item.case_id)
+    _case_access(session, actor, item.case_id, capability="view_evidence")
+    return item
+
+
+def get_content(
+    session: Session, *, actor: User, evidence_id: UUID
+) -> EvidenceItem:
+    item = get_evidence(session, evidence_id)
+    if item is None:
+        raise NotFoundError()
+    _case_access(session, actor, item.case_id, capability="view_evidence_content")
     return item
 
 
