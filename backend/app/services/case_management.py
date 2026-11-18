@@ -1,3 +1,4 @@
+# ruff: isort: skip_file
 """M4 case-management business rules."""
 
 from __future__ import annotations
