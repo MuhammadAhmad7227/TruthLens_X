@@ -228,14 +228,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {
             "service": resolved.service_name,
             "version": __version__,
-            "status": "milestone-M3-authentication",
+            "status": "milestone-M4-case-management",
             "api": "/api/v1",
             "health": "/healthz",
             "readiness": "/readyz",
             "status_endpoint": "/api/v1/status",
             "docs": "/docs",
             "note": (
-                "TruthLens X is under construction. Authentication is implemented in M3; forensic "
+                "TruthLens X is under construction. Authentication and case management are implemented in M3-M4; forensic "
                 "analysis and evidence handling remain future milestones — see docs/IMPLEMENTATION_ROADMAP.md."
             ),
         }
