@@ -1,3 +1,4 @@
+# ruff: isort: skip_file
 """Integration coverage for M4 case management and case isolation."""
 
 from __future__ import annotations
