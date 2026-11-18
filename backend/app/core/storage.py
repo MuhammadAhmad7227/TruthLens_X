@@ -19,7 +19,6 @@ _SIGNATURE_PREFIX_BYTES = 64
 _RIFF_HEADER_BYTES = 12
 _TEXT_RATIO = 0.95
 
-from app.core.config import Settings
 
 
 class StoredUpload(NamedTuple):
