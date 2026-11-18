@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import AuthorisationError, ForbiddenCaseAccessError, InvalidStateTransitionError
 from app.core.security.passwords import hash_password
 from app.models.audit import AuditLog
-from app.models.cases import CaseMember
+from app.models.cases import Case, CaseMember
 from app.models.enums import CaseRole, CaseStatus, GlobalRole, Sensitivity, UserStatus
 from app.models.identity import Permission, Role, RolePermission, User
 from app.services.authorization import authorize_case_access
@@ -43,7 +43,7 @@ def _user(session: Session, role: GlobalRole) -> User:
     return user
 
 
-def _case(session: Session, actor: User, title: str):
+def _case(session: Session, actor: User, title: str) -> Case:
     return create_case(
         session,
         actor=actor,
