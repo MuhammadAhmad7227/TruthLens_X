@@ -1,3 +1,4 @@
+# fmt: off
 """M5 evidence API schemas."""
 from __future__ import annotations
 
@@ -61,3 +62,5 @@ class EvidenceIntegrityResponse(BaseModel):
     expected_sha256: str
     actual_sha256: str | None
     checked_at: datetime
+
+# fmt: on
