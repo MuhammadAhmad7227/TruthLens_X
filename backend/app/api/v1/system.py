@@ -145,7 +145,7 @@ async def status_endpoint(settings: SettingsDep, registry: ReadinessRegistryDep)
             "alpr_allow_registry_lookup": settings.alpr_allow_registry_lookup,
         },
         "milestone": {
-            "current": "M4",
+            "current": "M6",
             "implemented": [
                 "configuration with fail-closed validation of ratified decisions",
                 "structured logging with unconditional secret redaction",
@@ -157,8 +157,7 @@ async def status_endpoint(settings: SettingsDep, registry: ReadinessRegistryDep)
                 "chain of custody, lifecycle, membership and case-level authorization",
             ],
             "not_yet_implemented": [
-                "evidence ingest and integrity (M5)",
-                "chain of custody (M6)",
+                "background processing with Celery (M7)",
                 "background processing with Celery (M7)",
                 "all forensic analysis modules (M8-M16)",
                 "AI assistant and inference providers (M17)",
