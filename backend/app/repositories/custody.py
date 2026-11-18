@@ -1,3 +1,4 @@
+# fmt: off
 """Persistence helpers for the append-only custody ledger."""
 from __future__ import annotations
 
@@ -25,3 +26,5 @@ def latest_event(session: Session, *, case_id: UUID) -> CustodyEvent | None:
         .order_by(CustodyEvent.sequence.desc())
         .limit(1)
     )
+
+# fmt: on
