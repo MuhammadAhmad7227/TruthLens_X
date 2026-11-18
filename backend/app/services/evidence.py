@@ -31,10 +31,10 @@ from app.repositories.evidence import (
     list_evidence,
     next_evidence_number,
 )
-from app.services.authorization import authorize_case_access
+from app.services.authorization import CaseAccess, authorize_case_access
 
 
-def _case_access(session: Session, actor: User, case_id: UUID):
+def _case_access(session: Session, actor: User, case_id: UUID) -> CaseAccess:
     return authorize_case_access(session, user=actor, case_id=case_id, capability="edit_case")
 
 
@@ -307,7 +307,7 @@ def get_one(session: Session, *, actor: User, evidence_id: UUID) -> EvidenceItem
 
 def list_for_case(
     session: Session, *, actor: User, case_id: UUID, limit: int = 100, offset: int = 0
-):
+) -> tuple[list[EvidenceItem], int]:
     authorize_case_access(session, user=actor, case_id=case_id, capability="view_case")
     return list_evidence(session, case_id=case_id, limit=limit, offset=offset)
 
