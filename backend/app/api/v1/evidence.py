@@ -1,6 +1,7 @@
 """M5 evidence endpoints: ingest, list, metadata and integrity verification."""
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -43,8 +44,6 @@ def upload_evidence(
         raise ValidationError("A filename is required")
     acquired = None
     if acquired_at:
-        from datetime import datetime
-
         try:
             acquired = datetime.fromisoformat(acquired_at.replace("Z", "+00:00"))
         except ValueError as exc:
