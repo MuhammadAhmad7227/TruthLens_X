@@ -151,7 +151,7 @@ class TestStatus:
         body = response.json()
         assert body["version"] == __version__
         assert body["environment"] == "development"
-        assert body["milestone"]["current"] == "M1"
+        assert body["milestone"]["current"] == "M3"
 
     def test_unimplemented_capabilities_are_declared(self, client: TestClient) -> None:
         """Nothing may be implied that does not exist. The API says what is missing."""
@@ -213,7 +213,7 @@ class TestStatus:
 class TestRootAndMetadata:
     def test_root_states_the_project_is_under_construction(self, client: TestClient) -> None:
         body = client.get("/").json()
-        assert body["status"] == "milestone-M1-foundation"
+        assert body["status"] == "milestone-M3-authentication"
         assert "NOT implemented" in body["note"]
 
     def test_openapi_is_served(self, client: TestClient) -> None:
