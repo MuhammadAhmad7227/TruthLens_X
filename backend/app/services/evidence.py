@@ -189,6 +189,7 @@ def ingest(
     physical.reference_count += 1
     case.storage_used_bytes += stored.size_bytes
     session.add(item)
+    session.flush()
     append_event(
         session,
         actor=actor,
