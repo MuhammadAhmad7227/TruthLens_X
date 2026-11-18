@@ -662,7 +662,7 @@ class TestSeedData:
                 )
                 assert count == expected_count
             total = one(connection.execute(text("SELECT count(*) FROM role_permissions")))
-        assert total == 33
+        assert total == 35
 
     def test_seeding_is_idempotent(self, scratch_database: str, scratch_engine: Engine) -> None:
         """Stamping back and re-upgrading must not duplicate, delete or re-key anything.
