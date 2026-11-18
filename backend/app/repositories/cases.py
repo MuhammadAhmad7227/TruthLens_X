@@ -21,9 +21,7 @@ def next_case_number(session: Session, year: int) -> str:
 
 
 def get_case(session: Session, case_id: UUID) -> Case | None:
-    return session.scalar(
-        select(Case).where(Case.id == case_id, Case.deleted_at.is_(None))
-    )
+    return session.scalar(select(Case).where(Case.id == case_id, Case.deleted_at.is_(None)))
 
 
 def get_case_by_number(session: Session, case_number: str) -> Case | None:
@@ -133,7 +131,9 @@ def case_counts(session: Session, case_id: UUID) -> dict[str, int]:
     )
     findings = int(
         session.scalar(
-            select(func.count()).select_from(AnalysisResult).where(AnalysisResult.case_id == case_id)
+            select(func.count())
+            .select_from(AnalysisResult)
+            .where(AnalysisResult.case_id == case_id)
         )
         or 0
     )
