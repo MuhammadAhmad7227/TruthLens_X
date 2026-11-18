@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Cookie, Depends, Request, Response, status
 
@@ -38,7 +38,7 @@ def _set_refresh_cookie(response: Response, token: str, settings: Settings) -> N
         max_age=settings.refresh_token_ttl_seconds,
         httponly=settings.cookie_httponly,
         secure=settings.cookie_secure,
-        samesite=settings.cookie_samesite,
+        samesite=cast(Literal["lax", "strict", "none"], settings.cookie_samesite),
         path="/api/v1/auth",
     )
 
@@ -125,7 +125,7 @@ def logout(request: Request, principal: CurrentPrincipal, session: SessionDep, r
         current_session=principal.session,
         user=principal.user,
         jti=str(principal.claims["jti"]),
-        token_exp=int(principal.claims["exp"]),
+        token_exp=cast(int, principal.claims["exp"]),
         request_id=getattr(request.state, "request_id", None),
         ip=_client_ip(request),
         user_agent=request.headers.get("user-agent"),
