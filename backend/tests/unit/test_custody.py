@@ -21,6 +21,9 @@ class FakeSession:
     def execute(self, *args: Any, **kwargs: Any) -> None:
         return None
 
+    def scalar(self, *args: Any, **kwargs: Any) -> Any:
+        return None
+
     def add(self, value: Any) -> None:
         self.added.append(value)
 
