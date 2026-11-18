@@ -138,6 +138,16 @@ def create_case(
     return case
 
 
+def get_case_by_number_for_user(session: Session, *, actor: User, case_number: str) -> Case:
+    case = get_case_by_number(session, case_number)
+    if case is None:
+        raise NotFoundError()
+    from app.services.authorization import authorize_case_access
+
+    authorize_case_access(session, user=actor, case_id=case.id, capability="view_case")
+    return case
+
+
 def list_cases(
     session: Session,
     *,
@@ -295,6 +305,14 @@ def add_member(
     target = get_user(session, user_id)
     if target is None or target.status is not UserStatus.ACTIVE:
         raise NotFoundError()
+    if case_role is CaseRole.OWNER:
+        raise ValidationError("Only the case creator may hold the owner role")
+    if case_role is CaseRole.LEAD and target.global_role not in {
+        GlobalRole.ADMIN,
+        GlobalRole.LEAD_INVESTIGATOR,
+        GlobalRole.INVESTIGATOR,
+    }:
+        raise ValidationError("Lead membership requires an investigator-capable global role")
     if get_membership(session, case_id=case_id, user_id=user_id) is not None:
         raise ValidationError("User is already a member of this case")
     member = CaseMember(
@@ -333,6 +351,16 @@ def update_member(
     member = get_membership(session, case_id=case_id, user_id=user_id)
     if member is None:
         raise NotFoundError()
+    if "case_role" in changes and changes["case_role"] is CaseRole.OWNER:
+        raise ValidationError("Only the case creator may hold the owner role")
+    if "case_role" in changes and changes["case_role"] is CaseRole.LEAD:
+        target = get_user(session, user_id)
+        if target is None or target.global_role not in {
+            GlobalRole.ADMIN,
+            GlobalRole.LEAD_INVESTIGATOR,
+            GlobalRole.INVESTIGATOR,
+        }:
+            raise ValidationError("Lead membership requires an investigator-capable global role")
     allowed = {
         "case_role",
         "valid_from",
