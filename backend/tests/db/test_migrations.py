@@ -649,18 +649,21 @@ class TestSeedData:
             "manage_members": 2,
         }
         with scratch_engine.connect() as connection:
-            rows = connection.execute(
-                text(
-                    "SELECT p.code, count(*) "
-                    "FROM role_permissions rp "
-                    "JOIN permissions p ON p.id = rp.permission_id "
-                    "WHERE p.code IN :codes "
-                    "GROUP BY p.code"
-                ).bindparams(codes=tuple(expected))
-            ).all()
-        assert {str(code): int(count) for code, count in rows} == expected
-        total = one(connection.execute(text("SELECT count(*) FROM role_permissions"))) if False else None
-        assert total is None
+            for code, expected_count in expected.items():
+                count = one(
+                    connection.execute(
+                        text(
+                            "SELECT count(*) FROM role_permissions rp "
+                            "JOIN permissions p ON p.id = rp.permission_id "
+                            "WHERE p.code = :code"
+                        ),
+                        {"code": code},
+                    )
+                )
+                assert count == expected_count
+            total = one(connection.execute(text("SELECT count(*) FROM role_permissions")))
+        assert total == 13
+
 
     def test_seeding_is_idempotent(self, scratch_database: str, scratch_engine: Engine) -> None:
         """Stamping back and re-upgrading must not duplicate, delete or re-key anything.
