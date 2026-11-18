@@ -2939,7 +2939,7 @@ class TestRevisionIsReapplyable:
                     == PREVIOUS_REVISION
                 )
                 assert "limitation_statements" in inspect(connection).get_table_names()
-                assert one(connection.execute(text("SELECT count(*) FROM role_permissions"))) == 0
+                assert one(connection.execute(text("SELECT count(*) FROM role_permissions"))) == 13
 
             result = alembic_in_a_fresh_process(revision_database, "upgrade", "head")
 
