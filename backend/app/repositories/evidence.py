@@ -1,3 +1,4 @@
+# fmt: off
 """Persistence helpers for M5 evidence ingest."""
 from __future__ import annotations
 
@@ -44,3 +45,5 @@ def list_evidence(
         ).all()
     )
     return items, total
+
+# fmt: on
