@@ -268,7 +268,6 @@ def transition_case(
     target: str | CaseStatus,
     reason: str | None,
 ) -> Case:
-
     target = CaseStatus(target)
     capability = (
         "reopen_case"
@@ -331,7 +330,6 @@ def add_member(
     can_view_original_content: bool,
     can_verify_findings: bool,
 ) -> CaseMember:
-
     case_role = CaseRole(case_role)
     access = authorize_case_access(
         session, user=actor, case_id=case_id, capability="manage_members"
@@ -398,7 +396,9 @@ def update_member(
     changes: dict[str, object],
 ) -> CaseMember:
 
-    access = authorize_case_access(session, user=actor, case_id=case_id, capability="manage_members")
+    access = authorize_case_access(
+        session, user=actor, case_id=case_id, capability="manage_members"
+    )
     case = access.case
     _require_owner_or_lead(access.member)
     member = get_membership(session, case_id=case_id, user_id=user_id)
@@ -431,7 +431,11 @@ def update_member(
         setattr(member, key, value)
     if member.case_role is CaseRole.LEAD:
         for existing in list_members(session, case_id=case_id):
-            if existing.user_id != user_id and existing.case_role is CaseRole.LEAD and existing.revoked_at is None:
+            if (
+                existing.user_id != user_id
+                and existing.case_role is CaseRole.LEAD
+                and existing.revoked_at is None
+            ):
                 existing.case_role = CaseRole.MEMBER
         case.lead_investigator_id = member.user_id
     elif case.lead_investigator_id == member.user_id:
@@ -480,9 +484,7 @@ def revoke_member(
 
 def dashboard(session: Session, *, actor: User, case_id: UUID) -> dict[str, object]:
 
-    access = authorize_case_access(
-        session, user=actor, case_id=case_id, capability="view_case"
-    )
+    access = authorize_case_access(session, user=actor, case_id=case_id, capability="view_case")
     counts = case_counts(session, case_id)
     return {
         "case_id": case_id,
