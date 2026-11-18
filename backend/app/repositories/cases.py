@@ -148,9 +148,25 @@ def case_counts(session: Session, case_id: UUID) -> dict[str, int]:
         )
         or 0
     )
+    from app.models.enums import VerificationStatus
+
+    verification_backlog = int(
+        session.scalar(
+            select(func.count())
+            .select_from(AnalysisResult)
+            .where(
+                AnalysisResult.case_id == case_id,
+                AnalysisResult.requires_human_verification.is_(True),
+                AnalysisResult.verification_status == VerificationStatus.UNVERIFIED,
+                AnalysisResult.is_current.is_(True),
+            )
+        )
+        or 0
+    )
     return {
         "evidence_count": evidence,
         "analysis_job_count": jobs,
         "finding_count": findings,
         "integrity_exception_count": integrity,
+        "verification_backlog": verification_backlog,
     }
