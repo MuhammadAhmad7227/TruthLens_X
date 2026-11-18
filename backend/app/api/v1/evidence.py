@@ -1,3 +1,4 @@
+# fmt: off
 """M5 evidence endpoints: ingest, list, metadata and integrity verification."""
 from __future__ import annotations
 
@@ -136,3 +137,5 @@ def download_evidence(
         media_type=item.physical_object.detected_mime,
         headers=headers,
     )
+
+# fmt: on
