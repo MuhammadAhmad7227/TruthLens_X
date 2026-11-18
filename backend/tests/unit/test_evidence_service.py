@@ -138,6 +138,7 @@ def test_prepare_download_audits_and_returns_stream(monkeypatch: pytest.MonkeyPa
         physical_object=SimpleNamespace(
             storage_path="aa/bb/digest",
             detected_mime="application/pdf",
+            sha256="a" * 64,
         ),
     )
     actor: Any = SimpleNamespace(id=uuid4(), global_role=SimpleNamespace(value="investigator"))
