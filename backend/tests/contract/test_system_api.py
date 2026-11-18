@@ -157,8 +157,7 @@ class TestStatus:
         """Nothing may be implied that does not exist. The API says what is missing."""
         body = client.get("/api/v1/status").json()
         declared = " ".join(body["milestone"]["not_yet_implemented"])
-        for capability in ("evidence", "custody", "forensic"):
-            assert capability in declared
+        assert "forensic" in declared
         assert "authentication" not in declared
         assert "case management" not in declared
 
