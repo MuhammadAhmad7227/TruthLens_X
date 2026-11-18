@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Query, status
 
 from app.api.v1.auth_deps import CurrentPrincipal
 from app.api.v1.case_deps import (
@@ -26,8 +26,7 @@ from app.api.v1.case_schemas import (
     CaseUpdateRequest,
 )
 from app.api.v1.deps import SessionDep
-from app.core.errors import NotFoundError
-from app.models.enums import CaseRole, CaseStatus, Sensitivity
+from typing import Literal
 from app.services import case_management
 
 
@@ -74,7 +73,7 @@ def create_case_endpoint(
         actor=principal.user,
         title=body.title,
         description=body.description,
-        sensitivity=Sensitivity(body.sensitivity),
+        sensitivity=body.sensitivity,
         case_type=body.case_type,
         jurisdiction=body.jurisdiction,
         lead_investigator_id=body.lead_investigator_id,
@@ -133,7 +132,7 @@ def transition_case_endpoint(
             session,
             actor=principal.user,
             case_id=access.case.id,
-            target=CaseStatus(body.to),
+            target=body.to,
             reason=body.reason,
         )
     )
@@ -176,7 +175,7 @@ def add_member_endpoint(
         actor=principal.user,
         case_id=access.case.id,
         user_id=body.user_id,
-        case_role=CaseRole(body.case_role),
+        case_role=body.case_role,
         valid_from=body.valid_from,
         valid_until=body.valid_until,
         capability_overrides=body.capability_overrides,
