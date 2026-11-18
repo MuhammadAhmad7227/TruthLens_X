@@ -140,7 +140,7 @@ def logout_all(request: Request, principal: CurrentPrincipal, session: SessionDe
         session,
         user=principal.user,
         jti=str(principal.claims["jti"]),
-        token_exp=int(principal.claims["exp"]),
+        token_exp=cast(int, principal.claims["exp"]),
         request_id=getattr(request.state, "request_id", None),
         ip=_client_ip(request),
         user_agent=request.headers.get("user-agent"),
