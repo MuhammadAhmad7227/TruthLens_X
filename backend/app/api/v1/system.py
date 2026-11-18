@@ -158,7 +158,6 @@ async def status_endpoint(settings: SettingsDep, registry: ReadinessRegistryDep)
             ],
             "not_yet_implemented": [
                 "background processing with Celery (M7)",
-                "background processing with Celery (M7)",
                 "all forensic analysis modules (M8-M16)",
                 "AI assistant and inference providers (M17)",
                 "report generation (M18)",
