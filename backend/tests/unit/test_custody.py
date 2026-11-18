@@ -98,7 +98,7 @@ def test_append_event_requires_purpose_for_download() -> None:
     evidence: Any = _evidence()
     with pytest.raises(ValidationError, match="purpose"):
         custody.append_event(
-            FakeSession(),
+            cast(Any, FakeSession()),
             actor=_actor(),
             case_id=evidence.case_id,
             evidence=evidence,
@@ -111,7 +111,7 @@ def test_append_event_rejects_cross_case_evidence() -> None:
     evidence: Any = _evidence()
     with pytest.raises(ValidationError, match="does not belong"):
         custody.append_event(
-            FakeSession(),
+            cast(Any, FakeSession()),
             actor=_actor(),
             case_id=uuid4(),
             evidence=evidence,
@@ -150,7 +150,7 @@ def test_verify_chain_detects_a_broken_hash(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(custody, "authorize_case_access", lambda *args, **kwargs: None)
     monkeypatch.setattr(custody, "list_events", lambda *args, **kwargs: [event])
     valid, broken = custody.verify_chain(
-        FakeSession(), actor=actor, case_id=case_id
+        cast(Any, FakeSession()), actor=actor, case_id=case_id
     )
     assert not valid
     assert broken == event.id
@@ -164,7 +164,7 @@ def test_verify_chain_accepts_a_valid_record(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(custody, "authorize_case_access", lambda *args, **kwargs: None)
     monkeypatch.setattr(custody, "list_events", lambda *args, **kwargs: [event])
     valid, broken = custody.verify_chain(
-        FakeSession(), actor=actor, case_id=case_id
+        cast(Any, FakeSession()), actor=actor, case_id=case_id
     )
     assert valid
     assert broken is None
