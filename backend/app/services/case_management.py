@@ -395,7 +395,6 @@ def update_member(
     user_id: UUID,
     changes: dict[str, object],
 ) -> CaseMember:
-
     access = authorize_case_access(
         session, user=actor, case_id=case_id, capability="manage_members"
     )
@@ -460,7 +459,9 @@ def revoke_member(
     user_id: UUID,
 ) -> None:
 
-    access = authorize_case_access(session, user=actor, case_id=case_id, capability="manage_members")
+    access = authorize_case_access(
+        session, user=actor, case_id=case_id, capability="manage_members"
+    )
     case = access.case
     _require_owner_or_lead(access.member)
     if user_id == case.created_by:
@@ -483,7 +484,6 @@ def revoke_member(
 
 
 def dashboard(session: Session, *, actor: User, case_id: UUID) -> dict[str, object]:
-
     access = authorize_case_access(session, user=actor, case_id=case_id, capability="view_case")
     counts = case_counts(session, case_id)
     return {
