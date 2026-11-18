@@ -84,13 +84,14 @@ def create_case(
     actor: User,
     title: str,
     description: str | None,
-    sensitivity: Sensitivity,
+    sensitivity: str | Sensitivity,
     case_type: str | None,
     jurisdiction: str | None,
     lead_investigator_id: UUID | None,
     statutory_deadline: datetime | None,
     tags: list[str],
 ) -> Case:
+    sensitivity = Sensitivity(sensitivity)
     if actor.global_role not in _CASE_CREATORS or actor.status is not UserStatus.ACTIVE:
         raise AuthorisationError("Your role cannot create cases")
     if not title.strip():
@@ -207,6 +208,8 @@ def update_case(
     unknown = set(changes) - allowed
     if unknown:
         raise ValidationError(f"Unsupported case fields: {', '.join(sorted(unknown))}")
+    if "sensitivity" in changes and changes["sensitivity"] is not None:
+        changes["sensitivity"] = Sensitivity(str(changes["sensitivity"]))
     if "lead_investigator_id" in changes and changes["lead_investigator_id"] is not None:
         lead = get_user(session, changes["lead_investigator_id"])
         if lead is None or lead.status is not UserStatus.ACTIVE:
@@ -231,11 +234,12 @@ def transition_case(
     *,
     actor: User,
     case_id: UUID,
-    target: CaseStatus,
+    target: str | CaseStatus,
     reason: str | None,
 ) -> Case:
     from app.services.authorization import authorize_case_access
 
+    target = CaseStatus(target)
     capability = "reopen_case" if actor.global_role is GlobalRole.ADMIN and target is CaseStatus.ACTIVE else "close_case"
     access = authorize_case_access(session, user=actor, case_id=case_id, capability=capability)
     case = access.case
@@ -288,7 +292,7 @@ def add_member(
     actor: User,
     case_id: UUID,
     user_id: UUID,
-    case_role: CaseRole,
+    case_role: str | CaseRole,
     valid_from: datetime | None,
     valid_until: datetime | None,
     capability_overrides: list[str],
@@ -297,6 +301,7 @@ def add_member(
 ) -> CaseMember:
     from app.services.authorization import authorize_case_access
 
+    case_role = CaseRole(case_role)
     access = authorize_case_access(session, user=actor, case_id=case_id, capability="manage_members")
     case = access.case
     _require_owner_or_lead(access.member)
