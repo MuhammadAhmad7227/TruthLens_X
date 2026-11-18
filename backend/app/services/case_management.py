@@ -180,20 +180,7 @@ def get_case_detail(session: Session, *, actor: User, case_id: UUID, capability:
     return case
 
 
-def update_case(
-    session: Session,
-    *,
-    actor: User,
-    case_id: UUID,
-    changes: dict[str, object],
-) -> Case:
-
-    access = authorize_case_access(session, user=actor, case_id=case_id, capability="edit_case")
-    case = access.case
-    _ensure_writable(case, actor=actor, member=access.member)
-    immutable = {"case_number", "id", "created_by", "created_at", "organisation_id"}
-    if immutable.intersection(changes):
-        raise ValidationError("Case number and ownership fields are immutable")
+def _normalise_case_changes(session: Session, *, case_id: UUID, changes: dict[str, object]) -> dict[str, object]:
     allowed = {
         "title",
         "description",
@@ -207,12 +194,15 @@ def update_case(
     unknown = set(changes) - allowed
     if unknown:
         raise ValidationError(f"Unsupported case fields: {', '.join(sorted(unknown))}")
-    if changes.get("title") is None and "title" in changes:
+    if "title" in changes and changes["title"] is None:
         raise ValidationError("Case title cannot be cleared")
-    if changes.get("sensitivity") is None and "sensitivity" in changes:
+    if "sensitivity" in changes and changes["sensitivity"] is None:
         raise ValidationError("Case sensitivity cannot be cleared")
-    if changes.get("tags") is None and "tags" in changes:
-        raise ValidationError("Case tags must be an array")
+    if "tags" in changes:
+        tags = changes["tags"]
+        if not isinstance(tags, list) or not all(isinstance(item, str) for item in tags):
+            raise ValidationError("Case tags must be a list of strings")
+        changes["tags"] = sorted(set(tags))
     if "sensitivity" in changes and changes["sensitivity"] is not None:
         changes["sensitivity"] = Sensitivity(str(changes["sensitivity"]))
     if "lead_investigator_id" in changes and changes["lead_investigator_id"] is not None:
@@ -226,16 +216,35 @@ def update_case(
         if lead_member is None or lead_member.revoked_at is not None:
             raise ValidationError("Lead investigator must be an active case member")
         lead_member.case_role = CaseRole.LEAD
-        case.lead_investigator_id = lead.id
+    return changes
+
+
+def update_case(
+    session: Session,
+    *,
+    actor: User,
+    case_id: UUID,
+    changes: dict[str, object],
+) -> Case:
+    access = authorize_case_access(session, user=actor, case_id=case_id, capability="edit_case")
+    case = access.case
+    _ensure_writable(case, actor=actor, member=access.member)
+    immutable = {"case_number", "id", "created_by", "created_at", "organisation_id"}
+    if immutable.intersection(changes):
+        raise ValidationError("Case number and ownership fields are immutable")
+
+    changes = _normalise_case_changes(session, case_id=case_id, changes=changes)
     for key, value in changes.items():
-        if key == "tags":
-            if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-                raise ValidationError("Case tags must be a list of strings")
-            new_value: object = sorted(set(value))
-        else:
-            new_value = value
-        setattr(case, key, new_value)
-    _audit(session, actor=actor, action="case.updated", case=case, metadata={"fields": sorted(changes)})
+        setattr(case, key, value)
+    if "lead_investigator_id" in changes:
+        case.lead_investigator_id = changes["lead_investigator_id"]  # type: ignore[assignment]
+    _audit(
+        session,
+        actor=actor,
+        action="case.updated",
+        case=case,
+        metadata={"fields": sorted(changes)},
+    )
     session.commit()
     session.refresh(case)
     return case
