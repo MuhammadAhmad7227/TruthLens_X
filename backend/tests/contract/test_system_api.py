@@ -151,7 +151,7 @@ class TestStatus:
         body = response.json()
         assert body["version"] == __version__
         assert body["environment"] == "development"
-        assert body["milestone"]["current"] == "M3"
+        assert body["milestone"]["current"] == "M4"
 
     def test_unimplemented_capabilities_are_declared(self, client: TestClient) -> None:
         """Nothing may be implied that does not exist. The API says what is missing."""
@@ -160,13 +160,14 @@ class TestStatus:
         for capability in ("evidence", "custody", "forensic"):
             assert capability in declared
         assert "authentication" not in declared
+        assert "case management" not in declared
 
     def test_implemented_list_matches_reality(self, client: TestClient) -> None:
         body = client.get("/api/v1/status").json()
         implemented = " ".join(body["milestone"]["implemented"])
         assert "configuration" in implemented
         assert "logging" in implemented
-        # M1 must not claim any forensic capability.
+        # M4 must not claim evidence or forensic capability.
         for overclaim in ("deepfake", "ALPR", "OCR", "chain of custody", "transcript"):
             assert overclaim.lower() not in implemented.lower()
 
