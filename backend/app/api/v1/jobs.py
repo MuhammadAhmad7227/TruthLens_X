@@ -1,0 +1,95 @@
+"""M7 asynchronous job endpoints."""
+from __future__ import annotations
+
+import asyncio
+import json
+from collections.abc import AsyncIterator
+from uuid import UUID
+
+from fastapi import APIRouter
+from fastapi.responses import StreamingResponse
+
+from app.api.v1.auth_deps import CurrentPrincipal
+from app.api.v1.deps import SessionDep
+from app.api.v1.job_schemas import CreateJobRequest, JobCreateResponse, JobResponse
+from app.services import jobs as job_service
+
+router = APIRouter(prefix="/cases/{case_id}/jobs", tags=["jobs"])
+
+
+def _response(job: object) -> JobResponse:
+    return JobResponse.model_validate(job)
+
+
+@router.post("", response_model=JobCreateResponse, status_code=202)
+def create(
+    case_id: UUID,
+    body: CreateJobRequest,
+    principal: CurrentPrincipal,
+    session: SessionDep,
+) -> JobCreateResponse:
+    job = job_service.create_job(
+        session,
+        actor=principal.user,
+        case_id=case_id,
+        pipeline=body.pipeline,
+        pipeline_version=body.pipeline_version,
+        params=body.params,
+        queue=body.queue,
+        priority=body.priority,
+        evidence_id=body.evidence_id,
+        idempotency_key=body.idempotency_key,
+    )
+    return JobCreateResponse(
+        job_id=job.id,
+        status=job.status.value,
+        status_url=f"/api/v1/cases/{case_id}/jobs/{job.id}",
+        progress_url=f"/api/v1/cases/{case_id}/jobs/{job.id}/events",
+    )
+
+
+@router.get("/{job_id}", response_model=JobResponse)
+def get(
+    case_id: UUID,
+    job_id: UUID,
+    principal: CurrentPrincipal,
+    session: SessionDep,
+) -> JobResponse:
+    return _response(
+        job_service.get_job(session, actor=principal.user, case_id=case_id, job_id=job_id)
+    )
+
+
+@router.post("/{job_id}:cancel", response_model=JobResponse)
+def cancel(
+    case_id: UUID,
+    job_id: UUID,
+    principal: CurrentPrincipal,
+    session: SessionDep,
+) -> JobResponse:
+    return _response(
+        job_service.cancel_job(session, actor=principal.user, case_id=case_id, job_id=job_id)
+    )
+
+
+@router.get("/{job_id}/events")
+async def events(
+    case_id: UUID,
+    job_id: UUID,
+    principal: CurrentPrincipal,
+    session: SessionDep,
+) -> StreamingResponse:
+    job_service.get_job(session, actor=principal.user, case_id=case_id, job_id=job_id)
+
+    async def stream() -> AsyncIterator[str]:
+        while True:
+            current = job_service.get_job(
+                session, actor=principal.user, case_id=case_id, job_id=job_id
+            )
+            payload = _response(current).model_dump(mode="json")
+            yield f"event: job\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
+            if current.status.value in {"succeeded", "failed", "cancelled", "dead_letter"}:
+                break
+            await asyncio.sleep(1)
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
