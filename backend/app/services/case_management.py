@@ -427,7 +427,7 @@ def dashboard(session: Session, *, actor: User, case_id: UUID) -> dict[str, obje
         "evidence_count": counts["evidence_count"],
         "analysis_job_count": counts["analysis_job_count"],
         "finding_count": counts["finding_count"],
-        "verification_backlog": 0,
+        "verification_backlog": counts["verification_backlog"],
         "integrity_exception_count": counts["integrity_exception_count"],
         "storage_used_bytes": access.case.storage_used_bytes,
     }
