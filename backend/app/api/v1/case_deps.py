@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Annotated
 from uuid import UUID
 
@@ -12,7 +13,7 @@ from app.api.v1.deps import SessionDep
 from app.services.authorization import CaseAccess, authorize_case_access
 
 
-def require_case_access(capability: str):
+def require_case_access(capability: str) -> Callable[..., CaseAccess]:
     def dependency(
         case_id: UUID,
         principal: CurrentPrincipal,
