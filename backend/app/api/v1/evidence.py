@@ -16,8 +16,6 @@ from app.api.v1.evidence_schemas import (
 )
 from app.core.config import get_settings
 from app.core.errors import ValidationError
-from app.core.storage import iter_object
-from app.repositories.audit import append_audit
 from app.services import evidence as evidence_service
 
 router = APIRouter(prefix="/cases/{case_id}/evidence", tags=["evidence"])
@@ -123,26 +121,19 @@ def download_evidence(
     session: SessionDep,
     purpose: Annotated[str, Query(min_length=3, max_length=500)],
 ) -> StreamingResponse:
-    item = evidence_service.get_one(session, actor=principal.user, evidence_id=evidence_id)
-    append_audit(
+    item, content = evidence_service.prepare_download(
         session,
-        action="evidence.downloaded",
-        result="success",
-        actor_id=principal.user.id,
-        actor_role=principal.user.global_role.value,
-        resource_type="evidence_item",
-        resource_id=item.id,
-        case_id=item.case_id,
-        reason=purpose,
+        settings=get_settings(),
+        actor=principal.user,
+        evidence_id=evidence_id,
+        purpose=purpose,
     )
-    session.commit()
-    settings = get_settings()
     headers = {
         "Content-Disposition": f'attachment; filename="{item.sanitized_filename.replace(chr(34), "")}"',
         "X-Evidence-SHA256": item.physical_object.sha256,
     }
     return StreamingResponse(
-        iter_object(settings=settings, storage_path=item.physical_object.storage_path),
+        content,
         media_type=item.physical_object.detected_mime,
         headers=headers,
     )
