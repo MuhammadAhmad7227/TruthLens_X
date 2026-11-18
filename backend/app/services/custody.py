@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -110,6 +109,15 @@ def append_event(
     event.record_hash = record_digest(event)
     session.add(event)
     return event
+
+
+def list_for_case(
+    session: Session, *, actor: User, case_id: UUID, evidence_id: UUID | None = None
+) -> list[CustodyEvent]:
+    authorize_case_access(
+        session, user=actor, case_id=case_id, capability="view_evidence"
+    )
+    return list_events(session, case_id=case_id, evidence_id=evidence_id)
 
 
 def verify_chain(
