@@ -1,3 +1,4 @@
+# fmt: off
 """Private filesystem storage for evidence originals.
 
 M5 keeps evidence bytes outside PostgreSQL and never derives a storage path from a client filename.
@@ -139,3 +140,5 @@ def iter_object(*, settings: Settings, storage_path: str, chunk_size: int = 1_04
     with open_object(settings=settings, storage_path=storage_path) as source:
         while chunk := source.read(chunk_size):
             yield chunk
+
+# fmt: on
