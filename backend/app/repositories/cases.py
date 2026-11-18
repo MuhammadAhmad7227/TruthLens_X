@@ -71,7 +71,7 @@ def list_accessible_cases(
     if sensitivity:
         stmt = stmt.where(Case.sensitivity == sensitivity)
     if tag:
-        stmt = stmt.where(Case.tags.any(tag))
+        stmt = stmt.where(Case.tags.contains([tag]))
     if query:
         stmt = stmt.where(Case.search_vector.op("@@")(func.plainto_tsquery("english", query)))
     return list(session.scalars(stmt).unique())
@@ -137,17 +137,19 @@ def case_counts(session: Session, case_id: UUID) -> dict[str, int]:
         )
         or 0
     )
-    integrity = int(
-        session.scalar(
-            select(func.count())
-            .select_from(IntegrityCheck)
-            .where(
-                IntegrityCheck.case_id == case_id,
-                IntegrityCheck.status.in_(("mismatch", "missing")),
-            )
+    integrity_stmt = (
+        select(func.count(func.distinct(IntegrityCheck.id)))
+        .select_from(IntegrityCheck)
+        .join(
+            EvidenceItem,
+            EvidenceItem.physical_object_id == IntegrityCheck.physical_object_id,
         )
-        or 0
+        .where(
+            EvidenceItem.case_id == case_id,
+            IntegrityCheck.result.in_(("mismatch", "missing")),
+        )
     )
+    integrity = int(session.execute(integrity_stmt).scalar_one())
     verification_backlog = int(
         session.scalar(
             select(func.count())
