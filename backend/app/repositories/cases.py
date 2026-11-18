@@ -9,6 +9,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.models.cases import Case, CaseMember
+from app.models.enums import VerificationStatus
 from app.models.identity import User
 
 
@@ -148,8 +149,6 @@ def case_counts(session: Session, case_id: UUID) -> dict[str, int]:
         )
         or 0
     )
-    from app.models.enums import VerificationStatus
-
     verification_backlog = int(
         session.scalar(
             select(func.count())
