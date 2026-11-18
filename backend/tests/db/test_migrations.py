@@ -664,7 +664,6 @@ class TestSeedData:
             total = one(connection.execute(text("SELECT count(*) FROM role_permissions")))
         assert total == 13
 
-
     def test_seeding_is_idempotent(self, scratch_database: str, scratch_engine: Engine) -> None:
         """Stamping back and re-upgrading must not duplicate, delete or re-key anything.
 
@@ -2963,7 +2962,6 @@ class TestRevisionIsReapplyable:
             )
         finally:
             engine.dispose()
-
 
     def test_the_revision_references_enum_types_instead_of_creating_them(self) -> None:
         """The structural half, so the fix cannot be undone by a plausible-looking edit.
