@@ -1,5 +1,3 @@
-# fmt: off
-
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -13,8 +11,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from app.core.config import Environment, Settings
 from app.core.errors import TokenExpiredError, UnauthenticatedError
 from app.core.security.denylist import InProcessJtiDenylist
-from app.services.auth import _challenge, _decode_challenge
 from app.core.security.jwt import decode_access_token, issue_access_token
+from app.services.auth import _challenge, _decode_challenge
 from app.core.security.mfa import decrypt_secret, encrypt_secret, new_totp_secret
 from app.core.security.passwords import hash_password, needs_rehash, verify_password
 from app.core.security.rate_limit import InProcessRateLimiter
@@ -164,4 +162,3 @@ def test_test_settings_generate_matching_ed25519_keypair() -> None:
     assert decode_access_token(settings, token)["iss"] == settings.jwt_issuer
 
 
-# fmt: on
