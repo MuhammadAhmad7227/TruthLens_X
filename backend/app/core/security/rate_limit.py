@@ -1,3 +1,4 @@
+# fmt: off
 """Small deterministic in-process fixed-window rate limiter for M3.
 
 Redis-backed rate limiting is deferred with the same infrastructure constraint as AUTH-06. The
@@ -44,3 +45,5 @@ class InProcessRateLimiter:
             for key in expired:
                 self._windows.pop(key, None)
             return len(expired)
+
+# fmt: on

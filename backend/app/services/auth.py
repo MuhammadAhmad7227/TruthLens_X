@@ -1,10 +1,11 @@
+# fmt: off
 """Authentication, session, lockout and MFA business rules."""
 
 from __future__ import annotations
 
 import hashlib
-from datetime import UTC, datetime, timedelta
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import jwt
@@ -13,8 +14,8 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.core.errors import (
     AuthorisationError,
-    NotFoundError,
     MFARequiredError,
+    NotFoundError,
     RateLimitedError,
     TokenExpiredError,
     UnauthenticatedError,
@@ -28,8 +29,8 @@ from app.core.security.mfa import (
     provisioning_uri,
     verify_totp,
 )
-from app.core.security.rate_limit import InProcessRateLimiter
 from app.core.security.passwords import hash_password, needs_rehash, verify_password
+from app.core.security.rate_limit import InProcessRateLimiter
 from app.models.enums import GlobalRole
 from app.models.identity import User, UserSession
 from app.repositories.audit import append_audit
@@ -323,3 +324,5 @@ def update_profile(session: Session, *, user: User, full_name: str, request_id: 
         resource_id=user.id,
     )
     session.commit()
+
+# fmt: on

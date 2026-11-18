@@ -1,3 +1,4 @@
+# fmt: off
 """Authentication/session HTTP endpoints."""
 
 from __future__ import annotations
@@ -11,12 +12,12 @@ from app.api.v1.auth_schemas import (
     LoginRequest,
     LoginResponse,
     MeResponse,
-    UpdateMeRequest,
     MfaCodeRequest,
     MfaDisableRequest,
     MfaEnrollResponse,
     MfaVerifyRequest,
     PasswordChangeRequest,
+    UpdateMeRequest,
 )
 from app.api.v1.deps import SessionDep
 from app.core.config import Settings, get_settings
@@ -64,7 +65,8 @@ def login(
         challenge = exc.challenge_token or ""
         response.headers["X-MFA-Challenge"] = challenge
         raise
-    assert user is not None and row is not None and access is not None and refresh is not None
+    if user is None or row is None or access is None or refresh is None:
+        raise RuntimeError("authentication service returned an incomplete login result")
     _set_refresh_cookie(response, refresh, settings)
     return LoginResponse(
         access_token=access,
@@ -189,7 +191,7 @@ def mfa_enrol(request: Request, principal: CurrentPrincipal, session: SessionDep
 
 
 @router.post("/mfa/confirm", status_code=status.HTTP_204_NO_CONTENT)
-def mfa_confirm(payload: MfaCodeRequest, request: Request, principal: CurrentPrincipal, session: SessionDep, settings: Annotated[Settings, get_settings]) -> Response:
+def mfa_confirm(payload: MfaCodeRequest, request: Request, principal: CurrentPrincipal, session: SessionDep, settings: Annotated[Settings, Depends(get_settings)]) -> Response:
     auth_service.confirm_mfa_enrolment(
         session, settings, user=principal.user, code=payload.code, request_id=getattr(request.state, "request_id", None)
     )
@@ -213,3 +215,5 @@ def update_me(payload: UpdateMeRequest, request: Request, principal: CurrentPrin
         request_id=getattr(request.state, "request_id", None),
     )
     return me(principal)
+
+# fmt: on

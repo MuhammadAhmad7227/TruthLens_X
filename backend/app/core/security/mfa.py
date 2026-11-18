@@ -8,13 +8,16 @@ import os
 import pyotp
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+_NONCE_BYTES = 12
+_MIN_ENCRYPTED_BYTES = _NONCE_BYTES + 16
+
 
 def _key(secret: str) -> bytes:
     return hashlib.sha256(secret.encode("utf-8")).digest()
 
 
 def encrypt_secret(secret: str, key_material: str) -> bytes:
-    nonce = os.urandom(12)
+    nonce = os.urandom(_NONCE_BYTES)
     ciphertext = AESGCM(_key(key_material)).encrypt(nonce, secret.encode("utf-8"), None)
     return nonce + ciphertext
 
