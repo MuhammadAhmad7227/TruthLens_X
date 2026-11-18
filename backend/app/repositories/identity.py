@@ -5,9 +5,8 @@ from __future__ import annotations
 import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
-from uuid import UUID, uuid4
-
 from typing import Any, cast
+from uuid import UUID, uuid4
 
 from sqlalchemy import CursorResult, select, update
 from sqlalchemy.orm import Session
