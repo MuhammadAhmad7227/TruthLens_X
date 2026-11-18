@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import hashlib
-import os
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -19,11 +19,10 @@ from app.core.storage import (
     stream_to_quarantine,
 )
 from app.models.cases import Case
-from app.models.enums import EvidenceStatus, IntegrityStatus, SourceType
+from app.models.enums import EvidenceStatus, EvidenceType, IntegrityStatus, SourceType
 from app.models.evidence import EvidenceItem, IntegrityCheck, PhysicalObject
 from app.models.identity import User
 from app.repositories.audit import append_audit
-from app.repositories.cases import get_case
 from app.repositories.evidence import (
     get_evidence,
     get_physical_object_by_sha256,
@@ -106,9 +105,6 @@ def ingest(
     case: Case = access.case
     if case.status.value in {"closed", "archived"}:
         raise ValidationError("Closed or archived cases cannot receive new evidence")
-    if case.legal_hold is False:
-        raise ValidationError("Evidence ingest is blocked while the case is not under legal hold")
-
     stored: StoredUpload
     try:
         stored = stream_to_quarantine(
@@ -117,7 +113,11 @@ def ingest(
     except ValueError as exc:
         raise ValidationError(str(exc)) from exc
 
-    _validate_type(item_type, stored.detected_mime)
+    try:
+        evidence_type = EvidenceType(item_type)
+    except ValueError as exc:
+        raise ValidationError(f"Unsupported evidence type: {item_type!r}") from exc
+    _validate_type(evidence_type.value, stored.detected_mime)
     if case.storage_quota_bytes is not None and case.storage_used_bytes + stored.size_bytes > case.storage_quota_bytes:
         _cleanup_unreferenced(settings, stored)
         raise ValidationError("Case storage quota would be exceeded")
@@ -151,6 +151,10 @@ def ingest(
     if physical.detected_mime != stored.detected_mime:
         raise EvidenceIntegrityError("Content hash maps to an inconsistent MIME record")
 
+    session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+        {"key": f"truthlens.evidence.number:{case_id}"},
+    )
     number = next_evidence_number(session, case_id)
     item = EvidenceItem(
         case_id=case_id,
@@ -158,7 +162,7 @@ def ingest(
         evidence_number=number,
         original_filename=filename or "evidence",
         sanitized_filename=sanitise_filename(filename),
-        item_type=item_type,
+        item_type=evidence_type,
         subcategory=stored.detected_mime.split("/", 1)[-1],
         status=EvidenceStatus.STORED,
         integrity_status=IntegrityStatus.VERIFIED,
