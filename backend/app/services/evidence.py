@@ -36,8 +36,12 @@ from app.services.authorization import CaseAccess, authorize_case_access
 from app.services.custody import append_event
 
 
-def _case_access(session: Session, actor: User, case_id: UUID) -> CaseAccess:
-    return authorize_case_access(session, user=actor, case_id=case_id, capability="edit_case")
+def _case_access(
+    session: Session, actor: User, case_id: UUID, capability: str = "upload_evidence"
+) -> CaseAccess:
+    return authorize_case_access(
+        session, user=actor, case_id=case_id, capability=capability
+    )
 
 
 def _validate_type(item_type: str, mime: str) -> None:
@@ -225,7 +229,7 @@ def _cleanup_unreferenced(settings: Settings, stored: StoredUpload) -> None:
 def prepare_download(
     session: Session, *, settings: Settings, actor: User, evidence_id: UUID, purpose: str
 ) -> tuple[EvidenceItem, Iterator[bytes]]:
-    item = get_one(session, actor=actor, evidence_id=evidence_id)
+    item = get_content(session, actor=actor, evidence_id=evidence_id)
     append_event(
         session,
         actor=actor,
@@ -336,7 +340,17 @@ def get_one(session: Session, *, actor: User, evidence_id: UUID) -> EvidenceItem
     item = get_evidence(session, evidence_id)
     if item is None:
         raise NotFoundError()
-    _case_access(session, actor, item.case_id)
+    _case_access(session, actor, item.case_id, capability="view_evidence")
+    return item
+
+
+def get_content(
+    session: Session, *, actor: User, evidence_id: UUID
+) -> EvidenceItem:
+    item = get_evidence(session, evidence_id)
+    if item is None:
+        raise NotFoundError()
+    _case_access(session, actor, item.case_id, capability="view_evidence_content")
     return item
 
 
