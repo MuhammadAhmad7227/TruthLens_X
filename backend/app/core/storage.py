@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import hashlib
 import os
-from contextlib import suppress
 from collections.abc import BinaryIO, Iterator
+from contextlib import suppress
 from tempfile import NamedTemporaryFile
 from typing import NamedTuple
 
@@ -18,7 +18,6 @@ from app.core.config import Settings
 _SIGNATURE_PREFIX_BYTES = 64
 _RIFF_HEADER_BYTES = 12
 _TEXT_RATIO = 0.95
-
 
 
 class StoredUpload(NamedTuple):
