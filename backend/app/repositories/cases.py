@@ -8,8 +8,10 @@ from uuid import UUID
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from app.models.analysis import AnalysisJob, AnalysisResult
 from app.models.cases import Case, CaseMember
 from app.models.enums import VerificationStatus
+from app.models.evidence import EvidenceItem, IntegrityCheck
 from app.models.identity import User
 
 
@@ -117,9 +119,6 @@ def get_user(session: Session, user_id: UUID) -> User | None:
 def case_counts(session: Session, case_id: UUID) -> dict[str, int]:
     # Evidence/analysis tables are introduced in the M2 schema; the counters are deliberately
     # computed from their case_id columns so dashboard reads cannot cross a case boundary.
-    from app.models.analysis import AnalysisJob, AnalysisResult
-    from app.models.evidence import EvidenceItem, IntegrityCheck
-
     evidence = int(
         session.scalar(
             select(func.count()).select_from(EvidenceItem).where(EvidenceItem.case_id == case_id)
