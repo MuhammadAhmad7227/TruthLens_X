@@ -12,10 +12,10 @@ from app.core.config import Environment, Settings
 from app.core.errors import TokenExpiredError, UnauthenticatedError
 from app.core.security.denylist import InProcessJtiDenylist
 from app.core.security.jwt import decode_access_token, issue_access_token
-from app.services.auth import _challenge, _decode_challenge
 from app.core.security.mfa import decrypt_secret, encrypt_secret, new_totp_secret
 from app.core.security.passwords import hash_password, needs_rehash, verify_password
 from app.core.security.rate_limit import InProcessRateLimiter
+from app.services.auth import _challenge, _decode_challenge
 
 
 def _settings() -> Settings:
