@@ -5,8 +5,8 @@ import io
 import pytest
 
 from app.core.config import Settings
-
 from app.core.storage import detect_mime, sanitise_filename, stream_to_quarantine
+
 
 
 def test_detect_mime_uses_magic_bytes() -> None:
