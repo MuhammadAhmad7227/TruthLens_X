@@ -154,7 +154,9 @@ async def status_endpoint(settings: SettingsDep, registry: ReadinessRegistryDep)
                 "liveness and readiness probes",
                 "security response headers",
                 "authentication, JWT sessions, MFA and admin unlock",
-                "chain of custody, lifecycle, membership and case-level authorization",
+                "case management, lifecycle, membership and case-level authorization",
+                "evidence ingest, private storage and integrity verification",
+                "chain of custody and append-only custody verification",
             ],
             "not_yet_implemented": [
                 "background processing with Celery (M7)",
