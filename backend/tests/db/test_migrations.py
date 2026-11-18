@@ -2939,7 +2939,8 @@ class TestRevisionIsReapplyable:
                     one(connection.execute(text("SELECT version_num FROM alembic_version")))
                     == PREVIOUS_REVISION
                 )
-                assert "limitation_statements" not in inspect(connection).get_table_names()
+                assert "limitation_statements" in inspect(connection).get_table_names()
+                assert one(connection.execute(text("SELECT count(*) FROM role_permissions"))) == 0
 
             result = alembic_in_a_fresh_process(revision_database, "upgrade", "head")
 
@@ -2956,11 +2957,13 @@ class TestRevisionIsReapplyable:
                     == HEAD_REVISION
                 )
                 assert "limitation_statements" in inspect(connection).get_table_names()
+                assert one(connection.execute(text("SELECT count(*) FROM role_permissions"))) == 13
             assert alembic_check(revision_database) is None, (
                 "the re-applied revision drifted from the models"
             )
         finally:
             engine.dispose()
+
 
     def test_the_revision_references_enum_types_instead_of_creating_them(self) -> None:
         """The structural half, so the fix cannot be undone by a plausible-looking edit.
