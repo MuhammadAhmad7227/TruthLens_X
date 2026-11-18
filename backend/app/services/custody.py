@@ -1,3 +1,4 @@
+# fmt: off
 # ruff: isort: skip_file
 """M6 append-only custody ledger and deterministic hash-chain verification."""
 from __future__ import annotations
@@ -148,3 +149,5 @@ def evidence_for_custody(
         session, user=actor, case_id=item.case_id, capability="view_evidence"
     )
     return item
+
+# fmt: on
