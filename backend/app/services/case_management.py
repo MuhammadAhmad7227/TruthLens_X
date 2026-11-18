@@ -208,6 +208,12 @@ def update_case(
     unknown = set(changes) - allowed
     if unknown:
         raise ValidationError(f"Unsupported case fields: {', '.join(sorted(unknown))}")
+    if changes.get("title") is None and "title" in changes:
+        raise ValidationError("Case title cannot be cleared")
+    if changes.get("sensitivity") is None and "sensitivity" in changes:
+        raise ValidationError("Case sensitivity cannot be cleared")
+    if changes.get("tags") is None and "tags" in changes:
+        raise ValidationError("Case tags must be an array")
     if "sensitivity" in changes and changes["sensitivity"] is not None:
         changes["sensitivity"] = Sensitivity(str(changes["sensitivity"]))
     if "lead_investigator_id" in changes and changes["lead_investigator_id"] is not None:
