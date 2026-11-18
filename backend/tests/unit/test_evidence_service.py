@@ -73,7 +73,7 @@ def test_ingest_creates_case_scoped_evidence(monkeypatch: pytest.MonkeyPatch, de
     assert item.integrity_status is IntegrityStatus.VERIFIED
     assert item.tags == ["a", "b"]
     assert case.storage_used_bytes > 0
-    assert len(session.added) == 2
+    assert len(session.added) == 3
 
 
 def test_ingest_rejects_incompatible_magic_bytes(monkeypatch: pytest.MonkeyPatch, dev_settings: Settings) -> None:

@@ -9,6 +9,7 @@ import pytest
 
 from app.core.errors import ValidationError
 from app.models.enums import CustodyEventType
+from app.models.evidence import CustodyEvent
 from app.services import custody
 
 
@@ -55,8 +56,8 @@ def test_canonical_digest_is_deterministic() -> None:
         prev_hash="0" * 64,
         record_hash="b" * 64,
     )
-    first = custody.record_digest(event)
-    second = custody.record_digest(event)
+    first = custody.record_digest(cast(CustodyEvent, event))
+    second = custody.record_digest(cast(CustodyEvent, event))
     assert first == second
     assert len(first) == 64
 
@@ -65,10 +66,8 @@ def test_append_event_creates_genesis_record() -> None:
     session = FakeSession()
     evidence = _evidence()
     actor = _actor()
-    custody.latest_event = lambda *args, **kwargs: None
-
-    event = custody.append_event(
-        session,
+        event = custody.append_event(
+        cast(Session, session),
         actor=actor,
         case_id=evidence.case_id,
         evidence=evidence,
@@ -78,14 +77,14 @@ def test_append_event_creates_genesis_record() -> None:
 
     assert event.sequence == 1
     assert event.prev_hash == "0" * 64
-    assert event.record_hash == custody.record_digest(event)
+    assert event.record_hash == custody.record_digest(cast(CustodyEvent, event))
     assert session.added == [event]
 
 
 def test_append_event_rejects_missing_actor() -> None:
     with pytest.raises(ValidationError, match="requires"):
         custody.append_event(
-            FakeSession(),
+            cast(Session, FakeSession()),
             actor=None,
             case_id=uuid4(),
             evidence=_evidence(),
@@ -97,7 +96,7 @@ def test_append_event_rejects_missing_actor() -> None:
 def test_append_event_requires_purpose_for_download() -> None:
     with pytest.raises(ValidationError, match="purpose"):
         custody.append_event(
-            FakeSession(),
+            cast(Session, FakeSession()),
             actor=_actor(),
             case_id=_evidence().case_id,
             evidence=_evidence(),
@@ -110,7 +109,7 @@ def test_append_event_rejects_cross_case_evidence() -> None:
     evidence = _evidence()
     with pytest.raises(ValidationError, match="does not belong"):
         custody.append_event(
-            FakeSession(),
+            cast(Session, FakeSession()),
             actor=_actor(),
             case_id=uuid4(),
             evidence=evidence,
@@ -144,7 +143,7 @@ def test_verify_chain_detects_a_broken_hash(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(custody, "authorize_case_access", lambda *args, **kwargs: None)
     monkeypatch.setattr(custody, "list_events", lambda *args, **kwargs: [event])
     valid, broken = custody.verify_chain(
-        FakeSession(), actor=actor, case_id=case_id
+        cast(Session, FakeSession()), actor=actor, case_id=case_id
     )
     assert not valid
     assert broken == event.id
@@ -172,7 +171,7 @@ def test_verify_chain_accepts_a_valid_record(monkeypatch: pytest.MonkeyPatch) ->
         prev_hash="0" * 64,
         record_hash="",
     )
-    event.record_hash = custody.record_digest(event)
+    event.record_hash = custody.record_digest(cast(CustodyEvent, event))
     monkeypatch.setattr(custody, "authorize_case_access", lambda *args, **kwargs: None)
     monkeypatch.setattr(custody, "list_events", lambda *args, **kwargs: [event])
     valid, broken = custody.verify_chain(
