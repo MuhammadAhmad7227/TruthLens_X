@@ -356,6 +356,8 @@ def update_member(
     member = get_membership(session, case_id=case_id, user_id=user_id)
     if member is None:
         raise NotFoundError()
+    if "case_role" in changes and changes["case_role"] is not None:
+        changes["case_role"] = CaseRole(str(changes["case_role"]))
     if "case_role" in changes and changes["case_role"] is CaseRole.OWNER:
         raise ValidationError("Only the case creator may hold the owner role")
     if "case_role" in changes and changes["case_role"] is CaseRole.LEAD:
