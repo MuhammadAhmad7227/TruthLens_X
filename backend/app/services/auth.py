@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import cast
 from uuid import UUID, uuid4
 
 import jwt
@@ -45,7 +46,7 @@ from app.repositories.identity import (
     revoke_family,
     revoke_session,
     touch_successful_login,
-    user_roles,
+    user_roles as repository_user_roles,
 )
 
 DENYLIST: JtiDenylist = InProcessJtiDenylist()
@@ -60,6 +61,10 @@ class Principal:
 LOGIN_LIMITER = InProcessRateLimiter()
 
 
+def user_roles(user: User) -> list[str]:
+    return repository_user_roles(user)
+
+
 def _challenge(settings: Settings, user: User) -> str:
     now = datetime.now(UTC)
     return jwt.encode(
@@ -72,7 +77,7 @@ def _challenge(settings: Settings, user: User) -> str:
             "aud": settings.jwt_audience,
             "purpose": "mfa",
         },
-        settings.jwt_private_key,
+        cast(str, settings.jwt_private_key),
         algorithm="EdDSA",
         headers={"kid": settings.jwt_key_id},
     )
@@ -80,13 +85,16 @@ def _challenge(settings: Settings, user: User) -> str:
 
 def _decode_challenge(settings: Settings, token: str) -> UUID:
     try:
+        header = jwt.get_unverified_header(token)
+        if header.get("alg") != "EdDSA" or header.get("kid") != settings.jwt_key_id:
+            raise UnauthenticatedError("Invalid MFA challenge")
         claims = jwt.decode(
             token,
-            settings.jwt_public_key,
+            cast(str, settings.jwt_public_key),
             algorithms=["EdDSA"],
             issuer=settings.jwt_issuer,
             audience=settings.jwt_audience,
-            options={"require": ["sub", "jti", "iat", "exp", "iss", "aud"]},
+            options={"require": ["sub", "jti", "iat", "exp", "iss", "aud", "purpose"]},
         )
     except jwt.ExpiredSignatureError as exc:
         raise TokenExpiredError() from exc

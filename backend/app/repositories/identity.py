@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import CursorResult, select, update
 from sqlalchemy.orm import Session
 
 from app.models.identity import User, UserSession
@@ -60,7 +61,7 @@ def revoke_family(session: Session, family_id: UUID, when: datetime) -> int:
         .where(UserSession.family_id == family_id, UserSession.revoked_at.is_(None))
         .values(revoked_at=when)
     )
-    return int(result.rowcount)
+    return int(cast(CursorResult[Any], result).rowcount)
 
 
 def revoke_all_sessions(session: Session, user_id: UUID, when: datetime) -> int:
@@ -69,7 +70,7 @@ def revoke_all_sessions(session: Session, user_id: UUID, when: datetime) -> int:
         .where(UserSession.user_id == user_id, UserSession.revoked_at.is_(None))
         .values(revoked_at=when)
     )
-    return int(result.rowcount)
+    return int(cast(CursorResult[Any], result).rowcount)
 
 
 def touch_successful_login(session: Session, user: User, ip: str | None) -> None:

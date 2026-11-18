@@ -1,5 +1,3 @@
-# fmt: off
-
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -17,6 +15,7 @@ from app.core.security.jwt import decode_access_token, issue_access_token
 from app.core.security.mfa import decrypt_secret, encrypt_secret, new_totp_secret
 from app.core.security.passwords import hash_password, needs_rehash, verify_password
 from app.core.security.rate_limit import InProcessRateLimiter
+from app.services.auth import _challenge, _decode_challenge
 
 
 def _settings() -> Settings:
@@ -26,10 +25,14 @@ def _settings() -> Settings:
         serialization.PrivateFormat.PKCS8,
         serialization.NoEncryption(),
     ).decode()
-    public_pem = private.public_key().public_bytes(
-        serialization.Encoding.PEM,
-        serialization.PublicFormat.SubjectPublicKeyInfo,
-    ).decode()
+    public_pem = (
+        private.public_key()
+        .public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode()
+    )
     return Settings(
         tlx_env=Environment.TEST,
         jwt_private_key=private_pem,
@@ -60,6 +63,17 @@ def test_jwt_uses_ed25519_and_required_claims() -> None:
     assert claims["exp"] > claims["iat"]
 
 
+def test_mfa_challenge_requires_current_kid() -> None:
+    settings = _settings()
+    user_id = uuid4()
+    token = _challenge(settings, type("UserStub", (), {"id": user_id})())
+    assert _decode_challenge(settings, token) == user_id
+
+    other = _settings()
+    with pytest.raises(UnauthenticatedError):
+        _decode_challenge(other, token)
+
+
 def test_jwt_rejects_hs256() -> None:
     settings = _settings()
     token = jwt.encode(
@@ -73,7 +87,7 @@ def test_jwt_rejects_hs256() -> None:
             "iss": settings.jwt_issuer,
             "aud": settings.jwt_audience,
         },
-        "not-a-valid-ed25519-key",
+        "not-a-valid-ed25519-key-material-32-bytes",
         algorithm="HS256",
     )
     with pytest.raises(UnauthenticatedError):
@@ -150,6 +164,3 @@ def test_test_settings_generate_matching_ed25519_keypair() -> None:
         mfa_verified=False,
     )
     assert decode_access_token(settings, token)["iss"] == settings.jwt_issuer
-
-
-# fmt: on

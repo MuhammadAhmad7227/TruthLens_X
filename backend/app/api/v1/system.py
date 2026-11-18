@@ -1,13 +1,12 @@
 """System endpoints: liveness, readiness and platform status.
 
-These are the only unauthenticated endpoints in M1 besides ``/openapi.json`` and ``/``.
+These are the public health/status endpoints in M3 besides ``/openapi.json`` and ``/``.
 See ``docs/API_SPECIFICATION.md`` §2.14.
 
-**Known M1 limitation, stated rather than hidden:** ``/api/v1/status`` is unauthenticated because no
-authentication exists yet — that arrives in M3. It is safe in M1 only because it exposes no
-sensitive data: configuration *names* and booleans, never values. From M19 it requires an admin
-capability. ``secret_names_set()`` is defined to return booleans, so leaking a value through this
-endpoint would require changing that method's signature, not a careless call here.
+**Known M3 limitation, stated rather than hidden:** ``/api/v1/status`` remains unauthenticated because
+it exposes no sensitive data: configuration *names* and booleans, never values. From M19 it requires
+an admin capability. ``secret_names_set()`` is defined to return booleans, so leaking a value through
+this endpoint would require changing that method's signature, not a careless call here.
 """
 
 from __future__ import annotations
@@ -146,7 +145,7 @@ async def status_endpoint(settings: SettingsDep, registry: ReadinessRegistryDep)
             "alpr_allow_registry_lookup": settings.alpr_allow_registry_lookup,
         },
         "milestone": {
-            "current": "M1",
+            "current": "M3",
             "implemented": [
                 "configuration with fail-closed validation of ratified decisions",
                 "structured logging with unconditional secret redaction",
@@ -154,9 +153,9 @@ async def status_endpoint(settings: SettingsDep, registry: ReadinessRegistryDep)
                 "RFC 9457 error model",
                 "liveness and readiness probes",
                 "security response headers",
+                "authentication, JWT sessions, MFA and admin unlock",
             ],
             "not_yet_implemented": [
-                "authentication, MFA and authorisation (M3)",
                 "case management (M4)",
                 "evidence ingest and integrity (M5)",
                 "chain of custody (M6)",
