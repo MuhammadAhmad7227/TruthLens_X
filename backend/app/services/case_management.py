@@ -137,7 +137,13 @@ def create_case(
                 can_view_original_content=True,
             )
         )
-    _audit(session, actor=actor, action="case.created", case=case, metadata={"case_number": case.case_number})
+    _audit(
+        session,
+        actor=actor,
+        action="case.created",
+        case=case,
+        metadata={"case_number": case.case_number},
+    )
     session.commit()
     session.refresh(case)
     return case
@@ -172,8 +178,9 @@ def list_cases(
     )
 
 
-def get_case_detail(session: Session, *, actor: User, case_id: UUID, capability: str = "view_case") -> Case:
-
+def get_case_detail(
+    session: Session, *, actor: User, case_id: UUID, capability: str = "view_case"
+) -> Case:
     authorize_case_access(session, user=actor, case_id=case_id, capability=capability)
     case = get_case(session, case_id)
     if case is None:
@@ -181,7 +188,9 @@ def get_case_detail(session: Session, *, actor: User, case_id: UUID, capability:
     return case
 
 
-def _normalise_case_changes(session: Session, *, case_id: UUID, changes: dict[str, object]) -> dict[str, object]:
+def _normalise_case_changes(
+    session: Session, *, case_id: UUID, changes: dict[str, object]
+) -> dict[str, object]:
     allowed = {
         "title",
         "description",
@@ -261,7 +270,11 @@ def transition_case(
 ) -> Case:
 
     target = CaseStatus(target)
-    capability = "reopen_case" if actor.global_role is GlobalRole.ADMIN and target is CaseStatus.ACTIVE else "close_case"
+    capability = (
+        "reopen_case"
+        if actor.global_role is GlobalRole.ADMIN and target is CaseStatus.ACTIVE
+        else "close_case"
+    )
     access = authorize_case_access(session, user=actor, case_id=case_id, capability=capability)
     case = access.case
     current = case.status
@@ -301,7 +314,6 @@ def transition_case(
 
 
 def list_case_members(session: Session, *, actor: User, case_id: UUID) -> list[CaseMember]:
-
     authorize_case_access(session, user=actor, case_id=case_id, capability="view_case")
     return list_members(session, case_id=case_id)
 
@@ -321,10 +333,15 @@ def add_member(
 ) -> CaseMember:
 
     case_role = CaseRole(case_role)
-    access = authorize_case_access(session, user=actor, case_id=case_id, capability="manage_members")
+    access = authorize_case_access(
+        session, user=actor, case_id=case_id, capability="manage_members"
+    )
     case = access.case
     _require_owner_or_lead(access.member)
-    if case.status in {CaseStatus.CLOSED, CaseStatus.ARCHIVED} and actor.global_role is not GlobalRole.ADMIN:
+    if (
+        case.status in {CaseStatus.CLOSED, CaseStatus.ARCHIVED}
+        and actor.global_role is not GlobalRole.ADMIN
+    ):
         raise CaseClosedError()
     target = get_user(session, user_id)
     if target is None or target.status is not UserStatus.ACTIVE:
@@ -353,10 +370,20 @@ def add_member(
     session.add(member)
     if case_role is CaseRole.LEAD:
         for existing in list_members(session, case_id=case_id):
-            if existing.user_id != user_id and existing.case_role is CaseRole.LEAD and existing.revoked_at is None:
+            if (
+                existing.user_id != user_id
+                and existing.case_role is CaseRole.LEAD
+                and existing.revoked_at is None
+            ):
                 existing.case_role = CaseRole.MEMBER
         case.lead_investigator_id = user_id
-    _audit(session, actor=actor, action="case.member.added", case=case, metadata={"user_id": str(user_id), "case_role": case_role.value})
+    _audit(
+        session,
+        actor=actor,
+        action="case.member.added",
+        case=case,
+        metadata={"user_id": str(user_id), "case_role": case_role.value},
+    )
     session.commit()
     session.refresh(member)
     return member
@@ -409,7 +436,13 @@ def update_member(
         case.lead_investigator_id = member.user_id
     elif case.lead_investigator_id == member.user_id:
         case.lead_investigator_id = None
-    _audit(session, actor=actor, action="case.member.updated", case=case, metadata={"user_id": str(user_id), "fields": sorted(changes)})
+    _audit(
+        session,
+        actor=actor,
+        action="case.member.updated",
+        case=case,
+        metadata={"user_id": str(user_id), "fields": sorted(changes)},
+    )
     session.commit()
     session.refresh(member)
     return member
@@ -435,13 +468,21 @@ def revoke_member(
     member.revoked_by = actor.id
     if case.lead_investigator_id == user_id:
         case.lead_investigator_id = None
-    _audit(session, actor=actor, action="case.member.revoked", case=case, metadata={"user_id": str(user_id)})
+    _audit(
+        session,
+        actor=actor,
+        action="case.member.revoked",
+        case=case,
+        metadata={"user_id": str(user_id)},
+    )
     session.commit()
 
 
 def dashboard(session: Session, *, actor: User, case_id: UUID) -> dict[str, object]:
 
-    access = authorize_case_access(session, user=actor, case_id=case_id, capability="view_case")
+    access = authorize_case_access(
+        session, user=actor, case_id=case_id, capability="view_case"
+    )
     counts = case_counts(session, case_id)
     return {
         "case_id": case_id,
