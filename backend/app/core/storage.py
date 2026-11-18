@@ -41,11 +41,24 @@ _SIGNATURES: tuple[tuple[bytes, str], ...] = (
 
 def detect_mime(prefix: bytes) -> str:
     """Detect a conservative MIME type from file-signature bytes."""
+    if prefix.startswith(b"RIFF") and len(prefix) >= 12:
+        if prefix[8:12] == b"WEBP":
+            return "image/webp"
+        if prefix[8:12] == b"WAVE":
+            return "audio/wav"
+    if len(prefix) >= 12 and prefix[4:8] == b"ftyp":
+        return "video/mp4"
     for signature, mime in _SIGNATURES:
         if prefix.startswith(signature):
             return mime
-    if prefix.startswith(b"RIFF") and len(prefix) >= 12 and prefix[8:12] == b"WEBP":
-        return "image/webp"
+    try:
+        decoded = prefix.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("Unsupported or unrecognised file signature") from exc
+    if decoded and "\x00" not in decoded and sum(
+        ch.isprintable() or ch in "\r\n\t" for ch in decoded
+    ) / len(decoded) > 0.95:
+        return "text/plain"
     raise ValueError("Unsupported or unrecognised file signature")
 
 
