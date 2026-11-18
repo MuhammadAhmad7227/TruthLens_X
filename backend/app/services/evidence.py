@@ -11,8 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.core.errors import IntegrityError as EvidenceIntegrityError
-from app.core.errors import NotFoundError, ValidationError
+from app.core.errors import IntegrityError as EvidenceIntegrityError, NotFoundError, ValidationError
 from app.core.storage import (
     StoredUpload,
     iter_object,
