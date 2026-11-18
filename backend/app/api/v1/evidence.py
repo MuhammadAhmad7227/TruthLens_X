@@ -18,12 +18,13 @@ from app.api.v1.evidence_schemas import (
 )
 from app.core.config import get_settings
 from app.core.errors import ValidationError
+from app.models.evidence import EvidenceItem
 from app.services import evidence as evidence_service
 
 router = APIRouter(prefix="/cases/{case_id}/evidence", tags=["evidence"])
 
 
-def _response(item) -> EvidenceResponse:
+def _response(item: EvidenceItem) -> EvidenceResponse:
     return EvidenceResponse.model_validate(evidence_service._item_response(item))
 
 
