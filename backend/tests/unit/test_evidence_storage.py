@@ -4,6 +4,8 @@ import io
 
 import pytest
 
+from app.core.config import Settings
+
 from app.core.storage import detect_mime, sanitise_filename, stream_to_quarantine
 
 
@@ -26,9 +28,7 @@ def test_filename_is_display_only() -> None:
     assert sanitise_filename("..") == "evidence"
 
 
-def test_stream_to_quarantine_hashes_and_content_addresses(
-    dev_settings,
-) -> None:
+def test_stream_to_quarantine_hashes_and_content_addresses(dev_settings: Settings) -> None:
     payload = b"%PDF-1.7\nforensic evidence\n"
     result = stream_to_quarantine(
         io.BytesIO(payload),
@@ -43,7 +43,7 @@ def test_stream_to_quarantine_hashes_and_content_addresses(
     assert destination.read_bytes() == payload
 
 
-def test_stream_to_quarantine_enforces_size_limit(dev_settings) -> None:
+def test_stream_to_quarantine_enforces_size_limit(dev_settings: Settings) -> None:
     dev_settings.max_upload_bytes = 4
     with pytest.raises(ValueError, match="maximum size"):
         stream_to_quarantine(
