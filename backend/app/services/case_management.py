@@ -72,11 +72,12 @@ def _audit(
     append_audit(
         session,
         action=action,
-        result="allowed",
+        result="success",
         actor_id=actor.id,
         actor_role=actor.global_role.value,
         resource_type="case",
         resource_id=case.id,
+        case_id=case.id,
         metadata=metadata,
     )
 
