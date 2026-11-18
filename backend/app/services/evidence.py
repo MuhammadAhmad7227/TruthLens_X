@@ -1,3 +1,4 @@
+# fmt: off
 """M5 evidence ingest, integrity and private-storage service."""
 from __future__ import annotations
 
@@ -308,3 +309,5 @@ def list_for_case(
 ):
     authorize_case_access(session, user=actor, case_id=case_id, capability="view_case")
     return list_evidence(session, case_id=case_id, limit=limit, offset=offset)
+
+# fmt: on
