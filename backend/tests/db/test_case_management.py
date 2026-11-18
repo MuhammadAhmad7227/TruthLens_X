@@ -69,24 +69,26 @@ def test_case_create_assigns_owner_and_unique_human_number(db_session: Session) 
     assert member.case_role is CaseRole.OWNER
 
 def test_m4_role_matrix_is_seeded(db_session: Session) -> None:
-    rows = db_session.execute(
-        select(
-            User.global_role,
-        )
-        .select_from(User)
-        .limit(0)
-    )
-    assert rows is not None
-    for permission in ("view_case", "edit_case", "close_case", "reopen_case", "manage_members"):
-        count = db_session.execute(
-            select(CaseMember.case_id)
-            .join(User, User.id == CaseMember.user_id)
-            .where(CaseMember.case_id == CaseMember.case_id)
-            .limit(1)
-        )
-        assert count is not None
-    # The actual matrix is asserted through the authorization service below; this test intentionally
-    # avoids coupling to role UUIDs or migration implementation details.
+    expected = {
+        "view_case": {"admin", "lead_investigator", "investigator", "analyst", "reviewer", "auditor"},
+        "edit_case": {"admin", "lead_investigator"},
+        "close_case": {"admin", "lead_investigator"},
+        "reopen_case": {"admin"},
+        "manage_members": {"admin", "lead_investigator"},
+    }
+    from app.models.identity import Permission, Role, RolePermission
+
+    for permission_code, roles in expected.items():
+        found = {
+            str(role_code)
+            for role_code, in db_session.execute(
+                select(Role.code)
+                .join(RolePermission, RolePermission.role_id == Role.id)
+                .join(Permission, Permission.id == RolePermission.permission_id)
+                .where(Permission.code == permission_code)
+            ).all()
+        }
+        assert found == roles
 
 def test_cross_case_access_is_non_enumerable_and_audited(db_session: Session) -> None:
     owner = _user(db_session, GlobalRole.INVESTIGATOR)
