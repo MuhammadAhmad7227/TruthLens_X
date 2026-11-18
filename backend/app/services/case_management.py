@@ -171,7 +171,6 @@ def list_cases(
 
 
 def get_case_detail(session: Session, *, actor: User, case_id: UUID, capability: str = "view_case") -> Case:
-    from app.services.authorization import authorize_case_access
 
     authorize_case_access(session, user=actor, case_id=case_id, capability=capability)
     case = get_case(session, case_id)
@@ -187,7 +186,6 @@ def update_case(
     case_id: UUID,
     changes: dict[str, object],
 ) -> Case:
-    from app.services.authorization import authorize_case_access
 
     access = authorize_case_access(session, user=actor, case_id=case_id, capability="edit_case")
     case = access.case
@@ -242,7 +240,6 @@ def transition_case(
     target: str | CaseStatus,
     reason: str | None,
 ) -> Case:
-    from app.services.authorization import authorize_case_access
 
     target = CaseStatus(target)
     capability = "reopen_case" if actor.global_role is GlobalRole.ADMIN and target is CaseStatus.ACTIVE else "close_case"
@@ -285,7 +282,6 @@ def transition_case(
 
 
 def list_case_members(session: Session, *, actor: User, case_id: UUID) -> list[CaseMember]:
-    from app.services.authorization import authorize_case_access
 
     authorize_case_access(session, user=actor, case_id=case_id, capability="view_case")
     return list_members(session, case_id=case_id)
@@ -304,7 +300,6 @@ def add_member(
     can_view_original_content: bool,
     can_verify_findings: bool,
 ) -> CaseMember:
-    from app.services.authorization import authorize_case_access
 
     case_role = CaseRole(case_role)
     access = authorize_case_access(session, user=actor, case_id=case_id, capability="manage_members")
@@ -356,7 +351,6 @@ def update_member(
     user_id: UUID,
     changes: dict[str, object],
 ) -> CaseMember:
-    from app.services.authorization import authorize_case_access
 
     access = authorize_case_access(session, user=actor, case_id=case_id, capability="manage_members")
     case = access.case
@@ -409,7 +403,6 @@ def revoke_member(
     case_id: UUID,
     user_id: UUID,
 ) -> None:
-    from app.services.authorization import authorize_case_access
 
     access = authorize_case_access(session, user=actor, case_id=case_id, capability="manage_members")
     case = access.case
@@ -428,7 +421,6 @@ def revoke_member(
 
 
 def dashboard(session: Session, *, actor: User, case_id: UUID) -> dict[str, object]:
-    from app.services.authorization import authorize_case_access
 
     access = authorize_case_access(session, user=actor, case_id=case_id, capability="view_case")
     counts = case_counts(session, case_id)
