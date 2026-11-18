@@ -1,3 +1,4 @@
+# fmt: off
 """M6 custody ledger and verification endpoints."""
 from __future__ import annotations
 
@@ -38,3 +39,5 @@ def verify_case_custody(
         session, actor=principal.user, case_id=case_id, evidence_id=evidence_id
     )
     return CustodyVerificationResponse(valid=valid, broken_at_record_id=broken)
+
+# fmt: on
