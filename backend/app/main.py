@@ -6,7 +6,7 @@ at a defined point in the lifecycle.
 
 Milestone M1 wires: configuration validation, structured logging with redaction, request-id
 correlation, security headers, the RFC 9457 error model, and the system (health/readiness/status)
-endpoints. Domain routers arrive from M3 onward.
+endpoints. Domain routers arrive incrementally from M3 onward.
 
 **Startup is fail-closed.** Invalid configuration raises before the server accepts a single request:
 a forensic platform that boots with a security control silently switched off is worse than one that
@@ -34,6 +34,7 @@ logger = get_logger(__name__)
 OPENAPI_TAGS: list[dict[str, Any]] = [
     {"name": "system", "description": "Liveness, readiness and platform status."},
     {"name": "auth", "description": "Authentication, sessions, password and MFA lifecycle."},
+    {"name": "cases", "description": "Investigation case lifecycle, membership and authorization."},
 ]
 
 
