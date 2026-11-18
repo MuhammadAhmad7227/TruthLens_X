@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import hashlib
 import os
-from collections.abc import BinaryIO, Iterator
+from collections.abc import Iterator
 from contextlib import suppress
 from tempfile import NamedTemporaryFile
-from typing import NamedTuple
+from typing import BinaryIO, NamedTuple
 
 from app.core.config import Settings
 
