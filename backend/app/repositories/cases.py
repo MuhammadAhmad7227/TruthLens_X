@@ -32,6 +32,12 @@ def get_case_by_number(session: Session, case_number: str) -> Case | None:
     )
 
 
+def get_case_member_for_user(
+    session: Session, *, case_id: UUID, user_id: UUID
+) -> CaseMember | None:
+    return get_membership(session, case_id=case_id, user_id=user_id, active_only=True)
+
+
 def list_accessible_cases(
     session: Session,
     *,
