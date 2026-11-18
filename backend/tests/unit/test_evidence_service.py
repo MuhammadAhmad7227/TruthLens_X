@@ -27,6 +27,9 @@ class FakeSession:
     def flush(self) -> None:
         return None
 
+    def scalar(self, *args: Any, **kwargs: Any) -> Any:
+        return None
+
     def commit(self) -> None:
         return None
 
@@ -138,7 +141,7 @@ def test_prepare_download_audits_and_returns_stream(monkeypatch: pytest.MonkeyPa
         ),
     )
     actor: Any = SimpleNamespace(id=uuid4(), global_role=SimpleNamespace(value="investigator"))
-    monkeypatch.setattr(evidence, "get_one", lambda *args, **kwargs: item)
+    monkeypatch.setattr(evidence, "get_evidence", lambda *args, **kwargs: item)
     monkeypatch.setattr(evidence, "append_audit", lambda *args, **kwargs: None)
     monkeypatch.setattr(evidence, "iter_object", lambda **kwargs: iter([b"data"]))
 
