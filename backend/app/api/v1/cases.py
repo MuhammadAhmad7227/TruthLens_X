@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Query, status
@@ -33,11 +33,11 @@ from app.services import case_management
 router = APIRouter(tags=["cases"])
 
 
-def _response(case) -> CaseResponse:
+def _response(case: Any) -> CaseResponse:
     return CaseResponse.model_validate(case, from_attributes=True)
 
 
-def _member_response(member) -> CaseMemberResponse:
+def _member_response(member: Any) -> CaseMemberResponse:
     return CaseMemberResponse.model_validate(member, from_attributes=True)
 
 
@@ -127,14 +127,15 @@ def transition_case_endpoint(
     principal: CurrentPrincipal,
     session: SessionDep,
 ) -> CaseTransitionResponse:
-    return _response(
+    return CaseTransitionResponse.model_validate(
         case_management.transition_case(
             session,
             actor=principal.user,
             case_id=access.case.id,
             target=body.to,
             reason=body.reason,
-        )
+        ),
+        from_attributes=True,
     )
 
 
