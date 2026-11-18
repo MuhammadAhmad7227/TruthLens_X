@@ -68,6 +68,22 @@ def authorize_case_access(
         session.commit()
         raise ForbiddenCaseAccessError()
 
+    overrides = set(member.capability_overrides)
+    if f"!{capability}" in overrides:
+        append_audit(
+            session,
+            action="case.access.denied",
+            result="denied",
+            actor_id=user.id,
+            actor_role=user.global_role.value,
+            reason="FORBIDDEN_CAPABILITY",
+            resource_type="case",
+            resource_id=case_id,
+            metadata={"capability": capability, "source": "case_membership_override"},
+        )
+        session.commit()
+        raise ForbiddenRoleError("Case membership revokes this capability")
+
     if not _global_capability_allowed(session, user, capability):
         append_audit(
             session,
