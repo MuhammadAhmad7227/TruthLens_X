@@ -25,10 +25,14 @@ def _settings() -> Settings:
         serialization.PrivateFormat.PKCS8,
         serialization.NoEncryption(),
     ).decode()
-    public_pem = private.public_key().public_bytes(
-        serialization.Encoding.PEM,
-        serialization.PublicFormat.SubjectPublicKeyInfo,
-    ).decode()
+    public_pem = (
+        private.public_key()
+        .public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode()
+    )
     return Settings(
         tlx_env=Environment.TEST,
         jwt_private_key=private_pem,
@@ -160,5 +164,3 @@ def test_test_settings_generate_matching_ed25519_keypair() -> None:
         mfa_verified=False,
     )
     assert decode_access_token(settings, token)["iss"] == settings.jwt_issuer
-
-
