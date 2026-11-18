@@ -26,7 +26,6 @@ from app.api.v1.case_schemas import (
     CaseUpdateRequest,
 )
 from app.api.v1.deps import SessionDep
-from typing import Literal
 from app.services import case_management
 
 
