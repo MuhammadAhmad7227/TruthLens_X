@@ -214,7 +214,7 @@ class TestRootAndMetadata:
     def test_root_states_the_project_is_under_construction(self, client: TestClient) -> None:
         body = client.get("/").json()
         assert body["status"] == "milestone-M3-authentication"
-        assert "NOT implemented" in body["note"]
+        assert "Authentication is implemented in M3" in body["note"]
 
     def test_openapi_is_served(self, client: TestClient) -> None:
         response = client.get("/openapi.json")
