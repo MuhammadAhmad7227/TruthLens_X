@@ -209,7 +209,7 @@ def test_invalid_state_transition_is_rejected(db_session: Session) -> None:
 
 
 def test_time_bounded_membership_is_excluded_from_case_list(db_session: Session) -> None:
-    actor = _user(db_session, GlobalRole.INVESTIGATOR)
+    actor = _user(db_session, GlobalRole.LEAD_INVESTIGATOR)
     case = _case(db_session, actor, "Time bounded")
     member = _user(db_session, GlobalRole.INVESTIGATOR)
     add_member(
