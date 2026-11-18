@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from app.core.config import Environment, Settings
 from app.core.errors import TokenExpiredError, UnauthenticatedError
 from app.core.security.denylist import InProcessJtiDenylist
+from app.services.auth import _challenge, _decode_challenge
 from app.core.security.jwt import decode_access_token, issue_access_token
 from app.core.security.mfa import decrypt_secret, encrypt_secret, new_totp_secret
 from app.core.security.passwords import hash_password, needs_rehash, verify_password
@@ -58,6 +59,17 @@ def test_jwt_uses_ed25519_and_required_claims() -> None:
     assert claims["roles"] == ["investigator"]
     assert "jti" in claims
     assert claims["exp"] > claims["iat"]
+
+
+def test_mfa_challenge_requires_current_kid() -> None:
+    settings = _settings()
+    user_id = uuid4()
+    token = _challenge(settings, type("UserStub", (), {"id": user_id})())
+    assert _decode_challenge(settings, token) == user_id
+
+    other = _settings()
+    with pytest.raises(UnauthenticatedError):
+        _decode_challenge(other, token)
 
 
 def test_jwt_rejects_hs256() -> None:
