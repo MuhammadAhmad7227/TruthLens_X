@@ -1,3 +1,4 @@
+# fmt: off
 # ruff: isort: skip_file
 from __future__ import annotations
 
@@ -52,3 +53,5 @@ def test_stream_to_quarantine_enforces_size_limit(dev_settings: Settings) -> Non
             settings=dev_settings,
             declared_mime="application/pdf",
         )
+
+# fmt: on
