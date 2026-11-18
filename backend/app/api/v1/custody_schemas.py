@@ -1,3 +1,4 @@
+# fmt: off
 """M6 custody API schemas."""
 from __future__ import annotations
 
@@ -30,3 +31,5 @@ class CustodyEventResponse(BaseModel):
 class CustodyVerificationResponse(BaseModel):
     valid: bool
     broken_at_record_id: UUID | None
+
+# fmt: on
