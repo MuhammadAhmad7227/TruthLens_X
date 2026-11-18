@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -25,7 +26,7 @@ class CustodyEventResponse(BaseModel):
     user_agent: str | None
     request_id: str | None
     recipient_id: UUID | None
-    detail: dict
+    detail: dict[str, Any]
 
 
 class CustodyVerificationResponse(BaseModel):

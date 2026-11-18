@@ -27,6 +27,9 @@ class FakeSession:
     def flush(self) -> None:
         return None
 
+    def scalar(self, *args: Any, **kwargs: Any) -> Any:
+        return None
+
     def commit(self) -> None:
         return None
 
@@ -73,7 +76,7 @@ def test_ingest_creates_case_scoped_evidence(monkeypatch: pytest.MonkeyPatch, de
     assert item.integrity_status is IntegrityStatus.VERIFIED
     assert item.tags == ["a", "b"]
     assert case.storage_used_bytes > 0
-    assert len(session.added) == 2
+    assert len(session.added) == 3
 
 
 def test_ingest_rejects_incompatible_magic_bytes(monkeypatch: pytest.MonkeyPatch, dev_settings: Settings) -> None:
@@ -135,10 +138,11 @@ def test_prepare_download_audits_and_returns_stream(monkeypatch: pytest.MonkeyPa
         physical_object=SimpleNamespace(
             storage_path="aa/bb/digest",
             detected_mime="application/pdf",
+            sha256="a" * 64,
         ),
     )
     actor: Any = SimpleNamespace(id=uuid4(), global_role=SimpleNamespace(value="investigator"))
-    monkeypatch.setattr(evidence, "get_one", lambda *args, **kwargs: item)
+    monkeypatch.setattr(evidence, "get_content", lambda *args, **kwargs: item)
     monkeypatch.setattr(evidence, "append_audit", lambda *args, **kwargs: None)
     monkeypatch.setattr(evidence, "iter_object", lambda **kwargs: iter([b"data"]))
 
