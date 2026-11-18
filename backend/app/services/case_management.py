@@ -216,7 +216,10 @@ def update_case(
     if "sensitivity" in changes and changes["sensitivity"] is not None:
         changes["sensitivity"] = Sensitivity(str(changes["sensitivity"]))
     if "lead_investigator_id" in changes and changes["lead_investigator_id"] is not None:
-        lead = get_user(session, changes["lead_investigator_id"])
+        lead_id = changes["lead_investigator_id"]
+        if not isinstance(lead_id, UUID):
+            raise ValidationError("Lead investigator id must be a UUID")
+        lead = get_user(session, lead_id)
         if lead is None or lead.status is not UserStatus.ACTIVE:
             raise ValidationError("Lead investigator must be an active user")
         lead_member = get_membership(session, case_id=case_id, user_id=lead.id)
@@ -225,7 +228,12 @@ def update_case(
         lead_member.case_role = CaseRole.LEAD
         case.lead_investigator_id = lead.id
     for key, value in changes.items():
-        new_value = sorted(set(value)) if key == "tags" and value is not None else value
+        if key == "tags":
+            if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+                raise ValidationError("Case tags must be a list of strings")
+            new_value: object = sorted(set(value))
+        else:
+            new_value = value
         setattr(case, key, new_value)
     _audit(session, actor=actor, action="case.updated", case=case, metadata={"fields": sorted(changes)})
     session.commit()
