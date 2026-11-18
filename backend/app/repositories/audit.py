@@ -36,6 +36,7 @@ def append_audit(
     request_id: str | None = None,
     resource_type: str | None = None,
     resource_id: UUID | None = None,
+    case_id: UUID | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> AuditLog:
     """Append one event while serialising writers with a PostgreSQL transaction advisory lock."""
@@ -53,6 +54,7 @@ def append_audit(
         "action": action,
         "resource_type": resource_type,
         "resource_id": resource_id,
+        "case_id": case_id,
         "result": result,
         "reason": reason,
         "request_id": request_id,
@@ -70,6 +72,7 @@ def append_audit(
         action=action,
         resource_type=resource_type,
         resource_id=resource_id,
+        case_id=case_id,
         result=result,
         reason=reason,
         request_id=request_id,
