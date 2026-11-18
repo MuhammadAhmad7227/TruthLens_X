@@ -138,10 +138,11 @@ def test_prepare_download_audits_and_returns_stream(monkeypatch: pytest.MonkeyPa
         physical_object=SimpleNamespace(
             storage_path="aa/bb/digest",
             detected_mime="application/pdf",
+            sha256="a" * 64,
         ),
     )
     actor: Any = SimpleNamespace(id=uuid4(), global_role=SimpleNamespace(value="investigator"))
-    monkeypatch.setattr(evidence, "get_one", lambda *args, **kwargs: item)
+    monkeypatch.setattr(evidence, "get_content", lambda *args, **kwargs: item)
     monkeypatch.setattr(evidence, "append_audit", lambda *args, **kwargs: None)
     monkeypatch.setattr(evidence, "iter_object", lambda **kwargs: iter([b"data"]))
 
