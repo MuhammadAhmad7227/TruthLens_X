@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import BinaryIO, Iterator
 from contextlib import suppress
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
@@ -90,7 +91,7 @@ def ingest(
     settings: Settings,
     actor: User,
     case_id: UUID,
-    source,
+    source: BinaryIO,
     filename: str | None,
     declared_mime: str | None,
     item_type: str,
@@ -213,7 +214,7 @@ def _cleanup_unreferenced(settings: Settings, stored: StoredUpload) -> None:
 
 def prepare_download(
     session: Session, *, settings: Settings, actor: User, evidence_id: UUID, purpose: str
-) -> tuple[EvidenceItem, object]:
+) -> tuple[EvidenceItem, Iterator[bytes]]:
     item = get_one(session, actor=actor, evidence_id=evidence_id)
     append_audit(
         session,
