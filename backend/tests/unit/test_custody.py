@@ -39,7 +39,7 @@ def _actor() -> Any:
 
 
 def test_canonical_digest_is_deterministic() -> None:
-    event = SimpleNamespace(
+    event: Any = SimpleNamespace(
         id=uuid4(),
         case_id=uuid4(),
         evidence_id=uuid4(),
@@ -59,7 +59,7 @@ def test_canonical_digest_is_deterministic() -> None:
         record_hash="b" * 64,
     )
     first = custody.record_digest(cast(Any, event))
-    second = custody.record_digest(event)
+    second = custody.record_digest(cast(Any, event))
     assert first == second
     assert len(first) == 64
 
@@ -68,7 +68,7 @@ def test_append_event_creates_genesis_record() -> None:
     session: Any = FakeSession()
     evidence: Any = _evidence()
     actor: Any = _actor()
-        event = custody.append_event(
+    event = custody.append_event(
         session,
         actor=actor,
         case_id=evidence.case_id,
@@ -76,7 +76,6 @@ def test_append_event_creates_genesis_record() -> None:
         event_type=CustodyEventType.INGESTED,
         purpose="acquisition",
     )
-
     assert event.sequence == 1
     assert event.prev_hash == "0" * 64
     assert event.record_hash == custody.record_digest(event)
@@ -96,19 +95,20 @@ def test_append_event_rejects_missing_actor() -> None:
 
 
 def test_append_event_requires_purpose_for_download() -> None:
+    evidence: Any = _evidence()
     with pytest.raises(ValidationError, match="purpose"):
         custody.append_event(
             FakeSession(),
             actor=_actor(),
-            case_id=_evidence().case_id,
-            evidence=_evidence(),
+            case_id=evidence.case_id,
+            evidence=evidence,
             event_type=CustodyEventType.DOWNLOADED,
             purpose=None,
         )
 
 
 def test_append_event_rejects_cross_case_evidence() -> None:
-    evidence = _evidence()
+    evidence: Any = _evidence()
     with pytest.raises(ValidationError, match="does not belong"):
         custody.append_event(
             FakeSession(),
@@ -120,47 +120,14 @@ def test_append_event_rejects_cross_case_evidence() -> None:
         )
 
 
-def test_verify_chain_detects_a_broken_hash(monkeypatch: pytest.MonkeyPatch) -> None:
-    actor = _actor()
-    case_id = uuid4()
-    event = SimpleNamespace(
+def _chain_event(actor_id: Any, case_id: Any) -> Any:
+    return SimpleNamespace(
         id=uuid4(),
         case_id=case_id,
         evidence_id=uuid4(),
         sequence=1,
         event_type=CustodyEventType.INGESTED,
-        actor_id=actor.id,
-        system_actor=None,
-        acted_at="2026-11-18T00:00:00+00:00",
-        sha256_at_event="a" * 64,
-        purpose="acquisition",
-        ip=None,
-        user_agent=None,
-        request_id=None,
-        recipient_id=None,
-        detail={},
-        prev_hash="0" * 64,
-        record_hash="f" * 64,
-    )
-    monkeypatch.setattr(custody, "authorize_case_access", lambda *args, **kwargs: None)
-    monkeypatch.setattr(custody, "list_events", lambda *args, **kwargs: [event])
-    valid, broken = custody.verify_chain(
-        FakeSession(), actor=actor, case_id=case_id
-    )
-    assert not valid
-    assert broken == event.id
-
-
-def test_verify_chain_accepts_a_valid_record(monkeypatch: pytest.MonkeyPatch) -> None:
-    actor = _actor()
-    case_id = uuid4()
-    event = SimpleNamespace(
-        id=uuid4(),
-        case_id=case_id,
-        evidence_id=uuid4(),
-        sequence=1,
-        event_type=CustodyEventType.INGESTED,
-        actor_id=actor.id,
+        actor_id=actor_id,
         system_actor=None,
         acted_at="2026-11-18T00:00:00+00:00",
         sha256_at_event="a" * 64,
@@ -173,6 +140,26 @@ def test_verify_chain_accepts_a_valid_record(monkeypatch: pytest.MonkeyPatch) ->
         prev_hash="0" * 64,
         record_hash="",
     )
+
+
+def test_verify_chain_detects_a_broken_hash(monkeypatch: pytest.MonkeyPatch) -> None:
+    actor: Any = _actor()
+    case_id = uuid4()
+    event: Any = _chain_event(actor.id, case_id)
+    event.record_hash = "f" * 64
+    monkeypatch.setattr(custody, "authorize_case_access", lambda *args, **kwargs: None)
+    monkeypatch.setattr(custody, "list_events", lambda *args, **kwargs: [event])
+    valid, broken = custody.verify_chain(
+        FakeSession(), actor=actor, case_id=case_id
+    )
+    assert not valid
+    assert broken == event.id
+
+
+def test_verify_chain_accepts_a_valid_record(monkeypatch: pytest.MonkeyPatch) -> None:
+    actor: Any = _actor()
+    case_id = uuid4()
+    event: Any = _chain_event(actor.id, case_id)
     event.record_hash = custody.record_digest(cast(Any, event))
     monkeypatch.setattr(custody, "authorize_case_access", lambda *args, **kwargs: None)
     monkeypatch.setattr(custody, "list_events", lambda *args, **kwargs: [event])
