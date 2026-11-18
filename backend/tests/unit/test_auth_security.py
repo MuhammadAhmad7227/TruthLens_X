@@ -1,3 +1,5 @@
+# fmt: off
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -149,3 +151,5 @@ def test_test_settings_generate_matching_ed25519_keypair() -> None:
     )
     assert decode_access_token(settings, token)["iss"] == settings.jwt_issuer
 
+
+# fmt: on
