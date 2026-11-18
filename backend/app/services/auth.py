@@ -85,13 +85,16 @@ def _challenge(settings: Settings, user: User) -> str:
 
 def _decode_challenge(settings: Settings, token: str) -> UUID:
     try:
+        header = jwt.get_unverified_header(token)
+        if header.get("alg") != "EdDSA" or header.get("kid") != settings.jwt_key_id:
+            raise UnauthenticatedError("Invalid MFA challenge")
         claims = jwt.decode(
             token,
             cast(str, settings.jwt_public_key),
             algorithms=["EdDSA"],
             issuer=settings.jwt_issuer,
             audience=settings.jwt_audience,
-            options={"require": ["sub", "jti", "iat", "exp", "iss", "aud"]},
+            options={"require": ["sub", "jti", "iat", "exp", "iss", "aud", "purpose"]},
         )
     except jwt.ExpiredSignatureError as exc:
         raise TokenExpiredError() from exc
