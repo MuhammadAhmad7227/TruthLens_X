@@ -333,6 +333,9 @@ def add_member(
     )
     session.add(member)
     if case_role is CaseRole.LEAD:
+        for existing in list_members(session, case_id=case_id):
+            if existing.user_id != user_id and existing.case_role is CaseRole.LEAD and existing.revoked_at is None:
+                existing.case_role = CaseRole.MEMBER
         case.lead_investigator_id = user_id
     _audit(session, actor=actor, action="case.member.added", case=case, metadata={"user_id": str(user_id), "case_role": case_role.value})
     session.commit()
@@ -382,6 +385,9 @@ def update_member(
     for key, value in changes.items():
         setattr(member, key, value)
     if member.case_role is CaseRole.LEAD:
+        for existing in list_members(session, case_id=case_id):
+            if existing.user_id != user_id and existing.case_role is CaseRole.LEAD and existing.revoked_at is None:
+                existing.case_role = CaseRole.MEMBER
         case.lead_investigator_id = member.user_id
     elif case.lead_investigator_id == member.user_id:
         case.lead_investigator_id = None
