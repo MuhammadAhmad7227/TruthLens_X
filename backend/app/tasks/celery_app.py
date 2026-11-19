@@ -28,6 +28,7 @@ def build_celery_app() -> Celery:
         task_track_started=True,
         task_send_sent_event=True,
         broker_connection_retry_on_startup=True,
+        task_reject_on_worker_lost=True,
         task_routes={"truthlens.jobs.execute": {"queue": "analysis.cpu"}},
         imports=("app.tasks.jobs",),
     )
