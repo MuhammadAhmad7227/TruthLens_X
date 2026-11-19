@@ -5,6 +5,9 @@ import hashlib
 import json
 from datetime import UTC, datetime
 from typing import Any
+
+MAX_PIPELINE_NAME_LENGTH = 200
+MAX_JOB_PRIORITY = 9
 from uuid import UUID
 
 from sqlalchemy import select
@@ -47,11 +50,11 @@ def create_job(
     idempotency_key: UUID | None = None,
 ) -> AnalysisJob:
     authorize_case_access(session, user=actor, case_id=case_id, capability="view_case")
-    if not pipeline or len(pipeline) > 200:
+    if not pipeline or len(pipeline) > MAX_PIPELINE_NAME_LENGTH:
         raise ValidationError("pipeline is required and must be at most 200 characters")
     if queue not in {"analysis.cpu", "analysis.gpu", "ingest", "reports", "maintenance"}:
         raise ValidationError("Unsupported queue")
-    if not 0 <= priority <= 9:
+    if not 0 <= priority <= MAX_JOB_PRIORITY:
         raise ValidationError("priority must be between 0 and 9")
 
     digest = _params_hash(params)
