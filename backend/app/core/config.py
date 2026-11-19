@@ -219,7 +219,6 @@ class Settings(BaseSettings):
     celery_timezone: str = Field(default="UTC", alias="CELERY_TIMEZONE")
     beat_schedule_enabled: bool = Field(default=True, alias="BEAT_SCHEDULE_ENABLED")
     #: ADR-0022: the Celery result backend is PostgreSQL, so Redis holds nothing durable.
-    celery_result_backend: str | None = Field(default=None, alias="CELERY_RESULT_BACKEND")
     celery_task_always_eager: bool = Field(default=False, alias="CELERY_TASK_ALWAYS_EAGER")
 
     # ── 5. Evidence storage ──────────────────────────────────────────────────
