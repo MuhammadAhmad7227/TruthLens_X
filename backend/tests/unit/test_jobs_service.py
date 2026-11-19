@@ -90,7 +90,7 @@ def test_create_job_rejects_unknown_queue(monkeypatch: pytest.MonkeyPatch) -> No
 
     with pytest.raises(ValidationError, match="Unsupported queue"):
         jobs.create_job(
-            session,
+            cast(Session, session),
             actor=_actor(),
             case_id=uuid4(),
             pipeline="maintenance.noop",
