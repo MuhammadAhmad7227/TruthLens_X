@@ -56,8 +56,8 @@ def test_canonical_digest_is_deterministic() -> None:
         prev_hash="0" * 64,
         record_hash="b" * 64,
     )
-    first = custody.record_digest(cast(CustodyEvent, event))
-    second = custody.record_digest(cast(CustodyEvent, event))
+    first = custody.record_digest(event)
+    second = custody.record_digest(event)
     assert first == second
     assert len(first) == 64
 
