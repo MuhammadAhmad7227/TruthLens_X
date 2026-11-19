@@ -98,6 +98,58 @@ def create_job(
     return job
 
 
+
+def list_jobs(
+    session: Session,
+    *,
+    actor: User,
+    case_id: UUID,
+    status: JobStatus | None = None,
+    pipeline: str | None = None,
+    evidence_id: UUID | None = None,
+    requested_by: UUID | None = None,
+) -> list[AnalysisJob]:
+    authorize_case_access(session, user=actor, case_id=case_id, capability="view_case")
+    stmt = select(AnalysisJob).where(AnalysisJob.case_id == case_id).order_by(AnalysisJob.queued_at.desc())
+    if status is not None:
+        stmt = stmt.where(AnalysisJob.status == status)
+    if pipeline is not None:
+        stmt = stmt.where(AnalysisJob.pipeline == pipeline)
+    if evidence_id is not None:
+        stmt = stmt.where(AnalysisJob.evidence_id == evidence_id)
+    if requested_by is not None:
+        stmt = stmt.where(AnalysisJob.requested_by == requested_by)
+    return list(session.scalars(stmt).all())
+
+
+def retry_job(
+    session: Session,
+    *,
+    actor: User,
+    case_id: UUID,
+    job_id: UUID,
+) -> AnalysisJob:
+    job = get_job(session, actor=actor, case_id=case_id, job_id=job_id)
+    if job.status not in {JobStatus.FAILED, JobStatus.DEAD_LETTER}:
+        raise ConflictError("Only failed or dead-lettered jobs can be retried")
+    job.status = JobStatus.QUEUED
+    job.finished_at = None
+    job.error_class = None
+    job.error_detail = None
+    job.progress_pct = 0
+    job.progress_message = "Retry queued"
+    job.queued_at = datetime.now(UTC)
+    job.celery_task_id = None
+    session.flush()
+    try:
+        async_result = execute_job.apply_async(args=[str(job.id)], queue=job.queue or "analysis.cpu")
+        job.celery_task_id = async_result.id
+        session.commit()
+    except Exception as exc:
+        session.rollback()
+        raise ValidationError("Worker queue is unavailable") from exc
+    return job
+
 def cancel_job(session: Session, *, actor: User, case_id: UUID, job_id: UUID) -> AnalysisJob:
     job = get_job(session, actor=actor, case_id=case_id, job_id=job_id)
     if job.status in {JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.DEAD_LETTER}:
