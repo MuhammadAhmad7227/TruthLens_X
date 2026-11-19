@@ -7,11 +7,13 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+import redis
 import structlog
 from celery import Task
 from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.db.session import get_session_factory
 from app.models.analysis import AnalysisJob
 from app.models.enums import JobStatus
@@ -40,6 +42,20 @@ def _mark(session: Any, job: AnalysisJob, status: JobStatus, **fields: Any) -> N
     for key, value in fields.items():
         setattr(job, key, value)
     session.commit()
+
+
+def _analysis_lock(job: AnalysisJob) -> tuple[redis.Redis, Any] | None:
+    if job.evidence_id is None:
+        return None
+    settings = get_settings()
+    client = redis.Redis.from_url(settings.celery_broker_url)
+    timeout = max(settings.celery_task_time_limit, settings.celery_task_soft_time_limit) + 60
+    lock = client.lock(
+        f"truthlens:analysis:{job.evidence_id}:{job.pipeline}",
+        timeout=timeout,
+        blocking_timeout=0,
+    )
+    return client, lock
 
 
 class JobTask(Task[Any, Any]):
@@ -99,6 +115,8 @@ def execute_job(self: JobTask, job_id: str) -> None:
     session = get_session_factory()()
     started = time.monotonic()
     job: AnalysisJob | None = None
+    lock_resource: tuple[redis.Redis, Any] | None = None
+    lock_acquired = False
     request_id = getattr(self.request, "headers", {}).get("request_id")
     if request_id:
         structlog.contextvars.bind_contextvars(request_id=request_id)
@@ -117,6 +135,14 @@ def execute_job(self: JobTask, job_id: str) -> None:
             progress_pct=1,
             progress_message="Worker accepted job",
         )
+
+        lock_resource = _analysis_lock(job)
+        if lock_resource is not None:
+            _, lock = lock_resource
+            lock_acquired = lock.acquire(blocking=False)
+            if not lock_acquired:
+                raise RuntimeError("DUPLICATE_ANALYSIS_IN_PROGRESS")
+
         if not job.pipeline.startswith("maintenance."):
             raise RuntimeError(f"Unsupported pipeline in M7: {job.pipeline}")
         _mark(
@@ -140,6 +166,14 @@ def execute_job(self: JobTask, job_id: str) -> None:
         countdown = min(300, 2**retry_count * 10)
         raise self.retry(exc=exc, countdown=countdown, max_retries=3) from exc
     finally:
+        if lock_resource is not None:
+            client, lock = lock_resource
+            if lock_acquired:
+                try:
+                    lock.release()
+                except redis.exceptions.LockError:
+                    pass
+            client.close()
         session.close()
         if request_id:
             structlog.contextvars.unbind_contextvars("request_id")
