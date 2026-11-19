@@ -136,7 +136,6 @@ async def events(
 
     async def stream() -> AsyncIterator[str]:
         factory = get_session_factory()
-        emitted_terminal = False
         sequence = max(last_event_id, 0)
         while True:
             stream_session = factory()
@@ -167,14 +166,11 @@ async def events(
                     f"event: job\n"
                     f"data: {json.dumps(payload, separators=(',', ':'))}\n\n"
                 )
-                last_event_id = sequence
             if terminal:
                 emitted_terminal = True
                 break
             await asyncio.sleep(1)
 
-        if not emitted_terminal:
-            return
 
     return StreamingResponse(
         stream(),
