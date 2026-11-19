@@ -31,7 +31,11 @@ def request_metadata_extraction(
     session: SessionDep,
 ) -> MetadataExtractResponse:
     metadata_service.assert_case_access(
-        session, actor=principal.user, case_id=case_id, evidence_id=evidence_id
+        session,
+        actor=principal.user,
+        case_id=case_id,
+        evidence_id=evidence_id,
+        capability="analyze_evidence",
     )
     job = job_service.create_job(
         session,
