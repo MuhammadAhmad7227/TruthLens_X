@@ -120,8 +120,6 @@ services:
 
   api:
         condition: service_healthy
-      worker-cpu:
-        condition: service_started
       frontend:
         condition: service_started
     networks: [tlxnet]
