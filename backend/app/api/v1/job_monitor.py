@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 import redis
 from celery import Celery
+from sqlalchemy import func, select
 from fastapi import APIRouter, HTTPException
 
 from app.api.v1.auth_deps import CurrentPrincipal
@@ -53,6 +56,38 @@ def monitor(principal: CurrentPrincipal) -> dict[str, Any]:
         queues = _queue_lengths(settings.celery_broker_url)
     except Exception:
         queues = {}
+
+    session = get_session_factory()()
+    try:
+        since = datetime.now(UTC) - timedelta(hours=1)
+        metrics: dict[str, dict[str, Any]] = {}
+        for queue in _ALLOWED_QUEUES:
+            rows = session.execute(
+                select(AnalysisJob.status, func.count(AnalysisJob.id))
+                .where(AnalysisJob.queue == queue)
+                .group_by(AnalysisJob.status)
+            ).all()
+            counts = {status.value: int(count) for status, count in rows}
+            completed_last_hour = session.scalar(
+                select(func.count(AnalysisJob.id)).where(
+                    AnalysisJob.queue == queue,
+                    AnalysisJob.status == JobStatus.SUCCEEDED,
+                    AnalysisJob.finished_at >= since,
+                )
+            )
+            metrics[queue] = {
+                "depth": queues.get(queue, 0),
+                "running": counts.get("running", 0),
+                "reserved": sum(len(items) for items in reserved.values()),
+                "succeeded": counts.get("succeeded", 0),
+                "failed": counts.get("failed", 0),
+                "retrying": counts.get("retrying", 0),
+                "dead_letter": counts.get("dead_letter", 0),
+                "throughput_last_hour": int(completed_last_hour or 0),
+            }
+    finally:
+        session.close()
+
     return {
         "workers": {
             name: {
@@ -62,7 +97,7 @@ def monitor(principal: CurrentPrincipal) -> dict[str, Any]:
             }
             for name in sorted(set(active) | set(reserved) | set(stats))
         },
-        "queues": queues,
+        "queues": metrics,
     }
 
 
@@ -93,8 +128,6 @@ def requeue_job(job_id: str, principal: CurrentPrincipal) -> dict[str, object]:
     _require_admin(principal)
     session = get_session_factory()()
     try:
-        from uuid import UUID
-
         job = session.get(AnalysisJob, UUID(job_id))
         if job is None:
             raise HTTPException(status_code=404, detail="Job not found")
