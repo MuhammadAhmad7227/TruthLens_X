@@ -11,7 +11,12 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.errors import ConflictError, NotFoundError, ValidationError
+from app.core.errors import (
+    ConflictError,
+    DependencyUnavailableError,
+    NotFoundError,
+    ValidationError,
+)
 from app.models.analysis import AnalysisJob
 from app.models.enums import JobStatus
 from app.models.identity import User
@@ -103,7 +108,7 @@ def create_job(
         session.commit()
     except Exception as exc:
         session.rollback()
-        raise ValidationError("Worker queue is unavailable") from exc
+        raise DependencyUnavailableError("Worker queue is unavailable") from exc
     return job
 
 
