@@ -17,7 +17,7 @@ from app.models.analysis import AnalysisJob
 from app.services.auth import authenticate_access_token
 from app.services.authorization import authorize_case_access
 
-router = APIRouter(prefix="/cases/{case_id}/jobs", tags=["jobs"])
+router = APIRouter(prefix="/cases/{case_id}", tags=["jobs"])
 
 
 @router.websocket("/ws")
@@ -37,13 +37,10 @@ async def case_job_events(websocket: WebSocket, case_id: UUID) -> None:
             capability="view_case",
         )
     except TruthLensError:
-        session.close()
         await websocket.close(code=1008)
         return
     finally:
-        if not session.is_active:
-            session.close()
-    session.close()
+        session.close()
 
     await websocket.accept()
     last_seen: dict[UUID, datetime | None] = {}
