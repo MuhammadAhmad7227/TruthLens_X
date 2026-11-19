@@ -104,4 +104,8 @@ async def events(
                 break
             await asyncio.sleep(1)
 
-    return StreamingResponse(\n        stream(),\n        media_type="text/event-stream",\n        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},\n    )
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
