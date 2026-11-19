@@ -1,0 +1,32 @@
+name: Temporary M7 formatter
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  format-m7:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/m7-async-platform
+          fetch-depth: 0
+      - uses: astral-sh/ruff-action@v3
+        with:
+          args: format backend
+      - name: Commit formatting changes to M7 branch
+        run: |
+          if git diff --quiet; then
+            echo "No formatting changes needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend
+          git commit -m "chore(m7): apply Ruff formatting"
+          git push origin HEAD:codex/m7-async-platform
