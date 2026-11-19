@@ -57,7 +57,7 @@ def create_job(
     idempotency_key: UUID | None = None,
     request_id: str | None = None,
 ) -> AnalysisJob:
-    authorize_case_access(session, user=actor, case_id=case_id, capability="view_case")
+    authorize_case_access(session, user=actor, case_id=case_id, capability="analyze_evidence")
     if not pipeline or len(pipeline) > MAX_PIPELINE_NAME_LENGTH:
         raise ValidationError("pipeline is required and must be at most 200 characters")
     if queue not in _ALLOWED_QUEUES:
@@ -147,6 +147,12 @@ def retry_job(
     job_id: UUID,
     request_id: str | None = None,
 ) -> AnalysisJob:
+    authorize_case_access(
+        session,
+        user=actor,
+        case_id=case_id,
+        capability="analyze_evidence",
+    )
     job = get_job(session, actor=actor, case_id=case_id, job_id=job_id)
     if job.status not in {JobStatus.FAILED, JobStatus.DEAD_LETTER}:
         raise ConflictError("Only failed or dead-lettered jobs can be retried")
@@ -176,6 +182,12 @@ def retry_job(
 
 
 def cancel_job(session: Session, *, actor: User, case_id: UUID, job_id: UUID) -> AnalysisJob:
+    authorize_case_access(
+        session,
+        user=actor,
+        case_id=case_id,
+        capability="analyze_evidence",
+    )
     job = get_job(session, actor=actor, case_id=case_id, job_id=job_id)
     if job.status in {
         JobStatus.SUCCEEDED,
