@@ -149,8 +149,12 @@ def execute_job(self: JobTask, job_id: str) -> None:
             if not lock_acquired:
                 raise RuntimeError("DUPLICATE_ANALYSIS_IN_PROGRESS")
 
-        if not job.pipeline.startswith("maintenance."):
-            raise RuntimeError(f"Unsupported pipeline in M7: {job.pipeline}")
+        if job.pipeline == "metadata.extract":
+            from app.services.metadata import extract_for_job
+
+            extract_for_job(session, settings=get_settings(), job=job)
+        elif not job.pipeline.startswith("maintenance."):
+            raise RuntimeError(f"Unsupported pipeline: {job.pipeline}")
         _mark(
             session,
             job,
