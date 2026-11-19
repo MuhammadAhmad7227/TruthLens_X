@@ -53,6 +53,7 @@ from app.models.evidence import (
     PhysicalObject,
 )
 from app.models.metadata import MetadataRecord
+from app.models.location import Location
 from app.models.identity import (
     Organisation,
     Permission,
@@ -115,6 +116,7 @@ __all__ = [
     "IntegrityStatus",
     "JobStatus",
     "LimitationStatement",
+    "Location",
     "MetadataRecord",
     "ModelStatus",
     "Notification",
