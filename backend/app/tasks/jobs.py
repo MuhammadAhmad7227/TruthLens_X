@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import socket
+from contextlib import suppress
 import time
 from datetime import UTC, datetime
 from typing import Any
@@ -169,10 +170,8 @@ def execute_job(self: JobTask, job_id: str) -> None:
         if lock_resource is not None:
             client, lock = lock_resource
             if lock_acquired:
-                try:
+                with suppress(redis.exceptions.LockError):
                     lock.release()
-                except redis.exceptions.LockError:
-                    pass
             client.close()
         session.close()
         if request_id:
