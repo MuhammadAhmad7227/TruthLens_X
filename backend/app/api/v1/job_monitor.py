@@ -108,16 +108,16 @@ def monitor(principal: CurrentPrincipal) -> dict[str, Any]:
     }
 
 
-_ALLOWED_QUEUES = {"ingest", "analysis.cpu", "analysis.gpu", "reports", "maintenance"}
-
-
-
 @router.post("/queues/{queue_name}:purge")
-def purge_queue_endpoint(queue_name: str, principal: CurrentPrincipal) -> dict[str, object]:
+def purge_queue_endpoint(
+    queue_name: str, principal: CurrentPrincipal
+) -> dict[str, object]:
     _require_admin(principal)
     if queue_name not in _ALLOWED_QUEUES:
         raise ValidationError("Unsupported queue")
     settings = get_settings()
+    if settings.celery_broker_url is None:
+        raise ValidationError("CELERY_BROKER_URL is not configured")
     client = redis.Redis.from_url(settings.celery_broker_url, decode_responses=True)
     try:
         keys = list(client.scan_iter(match=f"{queue_name}*"))
