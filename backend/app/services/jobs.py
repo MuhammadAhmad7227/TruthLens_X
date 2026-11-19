@@ -19,6 +19,7 @@ from app.tasks.jobs import execute_job
 
 MAX_PIPELINE_NAME_LENGTH = 200
 MAX_JOB_PRIORITY = 9
+_ALLOWED_QUEUES = {"analysis.cpu", "analysis.gpu", "ingest", "reports", "maintenance"}
 
 
 def _params_hash(params: dict[str, Any]) -> str:
@@ -48,11 +49,12 @@ def create_job(
     priority: int = 5,
     evidence_id: UUID | None = None,
     idempotency_key: UUID | None = None,
+    request_id: str | None = None,
 ) -> AnalysisJob:
     authorize_case_access(session, user=actor, case_id=case_id, capability="view_case")
     if not pipeline or len(pipeline) > MAX_PIPELINE_NAME_LENGTH:
         raise ValidationError("pipeline is required and must be at most 200 characters")
-    if queue not in {"analysis.cpu", "analysis.gpu", "ingest", "reports", "maintenance"}:
+    if queue not in _ALLOWED_QUEUES:
         raise ValidationError("Unsupported queue")
     if not 0 <= priority <= MAX_JOB_PRIORITY:
         raise ValidationError("priority must be between 0 and 9")
@@ -89,14 +91,19 @@ def create_job(
     session.add(job)
     session.flush()
     try:
-        async_result = execute_job.apply_async(args=[str(job.id)], queue=queue)
+        headers = {"request_id": request_id} if request_id else None
+        async_result = execute_job.apply_async(
+            args=[str(job.id)],
+            queue=queue,
+            priority=priority,
+            headers=headers,
+        )
         job.celery_task_id = async_result.id
         session.commit()
     except Exception as exc:
         session.rollback()
         raise ValidationError("Worker queue is unavailable") from exc
     return job
-
 
 
 def list_jobs(
@@ -110,7 +117,11 @@ def list_jobs(
     requested_by: UUID | None = None,
 ) -> list[AnalysisJob]:
     authorize_case_access(session, user=actor, case_id=case_id, capability="view_case")
-    stmt = select(AnalysisJob).where(AnalysisJob.case_id == case_id).order_by(AnalysisJob.queued_at.desc())
+    stmt = (
+        select(AnalysisJob)
+        .where(AnalysisJob.case_id == case_id)
+        .order_by(AnalysisJob.queued_at.desc())
+    )
     if status is not None:
         stmt = stmt.where(AnalysisJob.status == status)
     if pipeline is not None:
@@ -128,6 +139,7 @@ def retry_job(
     actor: User,
     case_id: UUID,
     job_id: UUID,
+    request_id: str | None = None,
 ) -> AnalysisJob:
     job = get_job(session, actor=actor, case_id=case_id, job_id=job_id)
     if job.status not in {JobStatus.FAILED, JobStatus.DEAD_LETTER}:
@@ -142,7 +154,13 @@ def retry_job(
     job.celery_task_id = None
     session.flush()
     try:
-        async_result = execute_job.apply_async(args=[str(job.id)], queue=job.queue or "analysis.cpu")
+        headers = {"request_id": request_id} if request_id else None
+        async_result = execute_job.apply_async(
+            args=[str(job.id)],
+            queue=job.queue or "analysis.cpu",
+            priority=job.priority,
+            headers=headers,
+        )
         job.celery_task_id = async_result.id
         session.commit()
     except Exception as exc:
@@ -150,9 +168,15 @@ def retry_job(
         raise ValidationError("Worker queue is unavailable") from exc
     return job
 
+
 def cancel_job(session: Session, *, actor: User, case_id: UUID, job_id: UUID) -> AnalysisJob:
     job = get_job(session, actor=actor, case_id=case_id, job_id=job_id)
-    if job.status in {JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.DEAD_LETTER}:
+    if job.status in {
+        JobStatus.SUCCEEDED,
+        JobStatus.FAILED,
+        JobStatus.DEAD_LETTER,
+        JobStatus.CANCELLED,
+    }:
         raise ConflictError("Completed jobs cannot be cancelled")
     job.status = JobStatus.CANCELLED
     job.finished_at = datetime.now(UTC)
