@@ -6,13 +6,13 @@ import json
 from collections.abc import AsyncIterator
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
 from app.api.v1.auth_deps import CurrentPrincipal
-from app.db.session import get_session_factory
 from app.api.v1.deps import SessionDep
 from app.api.v1.job_schemas import CreateJobRequest, JobCreateResponse, JobResponse
+from app.db.session import get_session_factory
 from app.models.enums import JobStatus
 from app.services import jobs as job_service
 
@@ -27,6 +27,7 @@ def _response(job: object) -> JobResponse:
 def create(
     case_id: UUID,
     body: CreateJobRequest,
+    request: Request,
     principal: CurrentPrincipal,
     session: SessionDep,
 ) -> JobCreateResponse:
@@ -41,6 +42,7 @@ def create(
         priority=body.priority,
         evidence_id=body.evidence_id,
         idempotency_key=body.idempotency_key,
+        request_id=getattr(request.state, "request_id", None),
     )
     return JobCreateResponse(
         job_id=job.id,
@@ -90,11 +92,18 @@ def get(
 def retry(
     case_id: UUID,
     job_id: UUID,
+    request: Request,
     principal: CurrentPrincipal,
     session: SessionDep,
 ) -> JobResponse:
     return _response(
-        job_service.retry_job(session, actor=principal.user, case_id=case_id, job_id=job_id)
+        job_service.retry_job(
+            session,
+            actor=principal.user,
+            case_id=case_id,
+            job_id=job_id,
+            request_id=getattr(request.state, "request_id", None),
+        )
     )
 
 
@@ -114,13 +123,21 @@ def cancel(
 async def events(
     case_id: UUID,
     job_id: UUID,
+    request: Request,
     principal: CurrentPrincipal,
     session: SessionDep,
 ) -> StreamingResponse:
     job_service.get_job(session, actor=principal.user, case_id=case_id, job_id=job_id)
+    raw_last_id = request.headers.get("Last-Event-ID")
+    try:
+        last_event_id = int(raw_last_id) if raw_last_id else 0
+    except ValueError:
+        last_event_id = 0
 
     async def stream() -> AsyncIterator[str]:
         factory = get_session_factory()
+        emitted_terminal = False
+        sequence = max(last_event_id, 0)
         while True:
             stream_session = factory()
             try:
@@ -128,18 +145,36 @@ async def events(
                     stream_session, actor=principal.user, case_id=case_id, job_id=job_id
                 )
                 payload = _response(current).model_dump(mode="json")
-                terminal = current.status.value in {
-                    "succeeded",
-                    "failed",
-                    "cancelled",
-                    "dead_letter",
+                updated_at = getattr(current, "updated_at", None)
+                candidate = (
+                    int(updated_at.timestamp() * 1_000_000)
+                    if updated_at is not None
+                    else sequence + 1
+                )
+                sequence = max(sequence + 1, candidate)
+                terminal = current.status in {
+                    JobStatus.SUCCEEDED,
+                    JobStatus.FAILED,
+                    JobStatus.CANCELLED,
+                    JobStatus.DEAD_LETTER,
                 }
             finally:
                 stream_session.close()
-            yield f"event: job\\ndata: {json.dumps(payload, separators=(',', ':'))}\\n\\n"
+
+            if sequence > last_event_id or terminal:
+                yield (
+                    f"id: {sequence}\n"
+                    f"event: job\n"
+                    f"data: {json.dumps(payload, separators=(',', ':'))}\n\n"
+                )
+                last_event_id = sequence
             if terminal:
+                emitted_terminal = True
                 break
             await asyncio.sleep(1)
+
+        if not emitted_terminal:
+            return
 
     return StreamingResponse(
         stream(),
