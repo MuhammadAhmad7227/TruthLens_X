@@ -64,7 +64,10 @@ def test_create_job_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_idempotency_reuse_with_different_pipeline_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    existing = SimpleNamespace(params_hash=jobs._params_hash({}), pipeline="maintenance.noop")
+    existing = SimpleNamespace(
+        params_hash=jobs._params_hash({}),
+        pipeline="maintenance.noop",
+    )
     session = FakeSession(existing)
     monkeypatch.setattr(jobs, "authorize_case_access", lambda *args, **kwargs: None)
 
@@ -106,7 +109,12 @@ def test_cancel_job_changes_state(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(jobs, "get_job", lambda *args, **kwargs: job)
     session = FakeSession()
 
-    result = jobs.cancel_job(cast(Session, session), actor=_actor(), case_id=uuid4(), job_id=uuid4())
+    result = jobs.cancel_job(
+        cast(Session, session),
+        actor=_actor(),
+        case_id=uuid4(),
+        job_id=uuid4(),
+    )
 
     assert result.status is JobStatus.CANCELLED
     assert session.committed
