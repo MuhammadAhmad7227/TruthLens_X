@@ -52,6 +52,7 @@ from app.models.evidence import (
     IntegrityCheck,
     PhysicalObject,
 )
+from app.models.metadata import MetadataRecord
 from app.models.identity import (
     Organisation,
     Permission,
@@ -114,6 +115,7 @@ __all__ = [
     "IntegrityStatus",
     "JobStatus",
     "LimitationStatement",
+    "MetadataRecord",
     "ModelStatus",
     "Notification",
     "Organisation",
