@@ -16,6 +16,7 @@ from app.core.config import get_settings
 from app.core.errors import ForbiddenRoleError, ValidationError
 from app.db.session import get_session_factory
 from app.models.analysis import AnalysisJob
+from app.models.enums import JobStatus
 from app.services import jobs as job_service
 
 router = APIRouter(prefix="/admin", tags=["jobs"])
