@@ -25,7 +25,13 @@ def _queue_lengths(broker_url: str) -> dict[str, int]:
     try:
         return {
             queue: int(client.llen(queue))
-            for queue in ("ingest", "analysis.cpu", "analysis.gpu", "reports", "maintenance")
+            for queue in (
+                "ingest",
+                "analysis.cpu",
+                "analysis.gpu",
+                "reports",
+                "maintenance",
+            )
         }
     finally:
         client.close()
