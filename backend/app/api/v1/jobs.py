@@ -85,7 +85,12 @@ def get(
     session: SessionDep,
 ) -> JobResponse:
     return _response(
-        job_service.get_job(session, actor=principal.user, case_id=case_id, job_id=job_id)
+        job_service.get_job(
+            session,
+            actor=principal.user,
+            case_id=case_id,
+            job_id=job_id,
+        )
     )
 
 
