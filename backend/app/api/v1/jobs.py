@@ -10,6 +10,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from app.api.v1.auth_deps import CurrentPrincipal
+from app.db.session import get_session_factory
 from app.api.v1.deps import SessionDep
 from app.api.v1.job_schemas import CreateJobRequest, JobCreateResponse, JobResponse
 from app.services import jobs as job_service
@@ -82,14 +83,25 @@ async def events(
     job_service.get_job(session, actor=principal.user, case_id=case_id, job_id=job_id)
 
     async def stream() -> AsyncIterator[str]:
+        factory = get_session_factory()
         while True:
-            current = job_service.get_job(
-                session, actor=principal.user, case_id=case_id, job_id=job_id
-            )
-            payload = _response(current).model_dump(mode="json")
-            yield f"event: job\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
-            if current.status.value in {"succeeded", "failed", "cancelled", "dead_letter"}:
+            stream_session = factory()
+            try:
+                current = job_service.get_job(
+                    stream_session, actor=principal.user, case_id=case_id, job_id=job_id
+                )
+                payload = _response(current).model_dump(mode="json")
+                terminal = current.status.value in {
+                    "succeeded",
+                    "failed",
+                    "cancelled",
+                    "dead_letter",
+                }
+            finally:
+                stream_session.close()
+            yield f"event: job\\ndata: {json.dumps(payload, separators=(',', ':'))}\\n\\n"
+            if terminal:
                 break
             await asyncio.sleep(1)
 
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    return StreamingResponse(\n        stream(),\n        media_type="text/event-stream",\n        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},\n    )
