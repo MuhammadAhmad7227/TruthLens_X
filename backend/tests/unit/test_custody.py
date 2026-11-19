@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
+
+from sqlalchemy.orm import Session
 from uuid import uuid4
 
 import pytest
@@ -66,7 +68,7 @@ def test_append_event_creates_genesis_record() -> None:
     session = FakeSession()
     evidence = _evidence()
     actor = _actor()
-        event = custody.append_event(
+    event = custody.append_event(
         cast(Session, session),
         actor=actor,
         case_id=evidence.case_id,
