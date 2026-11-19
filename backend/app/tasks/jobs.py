@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import socket
-from contextlib import suppress
 import time
+from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
