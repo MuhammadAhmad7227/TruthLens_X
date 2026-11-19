@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+import structlog
 from celery import Task
 from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy import select
@@ -98,6 +99,9 @@ def execute_job(self: JobTask, job_id: str) -> None:
     session = get_session_factory()()
     started = time.monotonic()
     job: AnalysisJob | None = None
+    request_id = getattr(self.request, "headers", {}).get("request_id")
+    if request_id:
+        structlog.contextvars.bind_contextvars(request_id=request_id)
     try:
         job = _get_job(session, UUID(job_id))
         if job.status is JobStatus.CANCELLED:
@@ -133,7 +137,9 @@ def execute_job(self: JobTask, job_id: str) -> None:
         job.status = JobStatus.RETRYING
         session.commit()
         retry_count = int(getattr(self.request, "retries", 0))
-        countdown = min(300, 2 ** retry_count * 10)
+        countdown = min(300, 2**retry_count * 10)
         raise self.retry(exc=exc, countdown=countdown, max_retries=3) from exc
     finally:
         session.close()
+        if request_id:
+            structlog.contextvars.unbind_contextvars("request_id")
