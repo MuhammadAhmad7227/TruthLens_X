@@ -143,6 +143,7 @@ async def events(
     async def stream() -> AsyncIterator[str]:
         factory = get_session_factory()
         sequence = max(last_event_id, 0)
+        last_marker: datetime | None = None
         while True:
             stream_session = factory()
             try:
@@ -151,12 +152,15 @@ async def events(
                 )
                 payload = _response(current).model_dump(mode="json")
                 updated_at = getattr(current, "updated_at", None)
+                changed = updated_at != last_marker
                 candidate = (
                     int(updated_at.timestamp() * 1_000_000)
                     if updated_at is not None
                     else sequence + 1
                 )
-                sequence = max(sequence + 1, candidate)
+                if changed:
+                    sequence = max(sequence + 1, candidate)
+                    last_marker = updated_at
                 terminal = current.status in {
                     JobStatus.SUCCEEDED,
                     JobStatus.FAILED,
@@ -166,7 +170,7 @@ async def events(
             finally:
                 stream_session.close()
 
-            if sequence > last_event_id or terminal:
+            if changed or terminal:
                 yield (
                     f"id: {sequence}\n"
                     f"event: job\n"
