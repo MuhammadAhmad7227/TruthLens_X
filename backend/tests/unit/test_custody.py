@@ -1,11 +1,11 @@
-# fmt: off
 from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any, cast
 
-from sqlalchemy.orm import Session
 from uuid import uuid4
+
+from sqlalchemy.orm import Session
 
 import pytest
 
