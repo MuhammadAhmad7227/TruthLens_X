@@ -102,7 +102,20 @@ services:
     volumes:
       - ./nginx/truthlens.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
+      api:
+        condition: service_healthy
+      frontend:
+        condition: service_started
       worker-cpu:
+        condition: service_started
+    networks: [tlxnet]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/nginx-health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  worker-cpu:
     build:
       context: ../../
       dockerfile: infra/docker/api.Dockerfile
@@ -117,19 +130,6 @@ services:
     volumes:
       - evidence:/evidence
     networks: [tlxnet]
-
-  api:
-        condition: service_healthy
-      frontend:
-        condition: service_started
-      worker-cpu:
-        condition: service_started
-    networks: [tlxnet]
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/nginx-health"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
 
   api:
     build:
