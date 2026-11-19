@@ -15,6 +15,7 @@ from app.forensics.metadata import MetadataExtractor
 from app.models.analysis import AnalysisJob
 from app.models.evidence import EvidenceItem
 from app.models.identity import User
+from app.models.location import Location
 from app.models.metadata import MetadataRecord
 from app.services.authorization import authorize_case_access
 
@@ -77,6 +78,24 @@ def extract_for_job(
         source_sha256=item.physical_object.sha256,
     )
     session.add(record)
+
+    location = result.normalised.get("location")
+    if isinstance(location, dict):
+        latitude = location.get("latitude")
+        longitude = location.get("longitude")
+        if isinstance(latitude, (int, float)) and isinstance(longitude, (int, float)):
+            session.add(
+                Location(
+                    evidence_id=item.id,
+                    latitude=latitude,
+                    longitude=longitude,
+                    altitude_m=location.get("altitude_m"),
+                    uncertainty_m=location.get("uncertainty_radius_m"),
+                    precision_digits=location.get("precision_digits"),
+                    source=str(location.get("source") or "exif_gps"),
+                )
+            )
+
     session.commit()
     session.refresh(record)
     return record
