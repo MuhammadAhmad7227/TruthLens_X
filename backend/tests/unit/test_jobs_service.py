@@ -1,4 +1,3 @@
-# fmt: off
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -110,4 +109,3 @@ def test_cancel_job_changes_state(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert result.status is JobStatus.CANCELLED
     assert session.committed
-# fmt: on
