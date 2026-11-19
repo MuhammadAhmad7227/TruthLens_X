@@ -222,12 +222,10 @@ class Settings(BaseSettings):
     celery_task_always_eager: bool = Field(default=False, alias="CELERY_TASK_ALWAYS_EAGER")
 
     # ── 4b. Metadata extraction ──────────────────────────────────────────────
+    enable_exiftool: bool = Field(default=True, alias="ENABLE_EXIFTOOL")
     exiftool_binary: str = Field(default="exiftool", alias="EXIFTOOL_BINARY")
-    metadata_exiftool_timeout_seconds: int = Field(
-        default=60, ge=1, le=900, alias="METADATA_EXIFTOOL_TIMEOUT_SECONDS"
-    )
-    metadata_exiftool_required: bool = Field(
-        default=False, alias="METADATA_EXIFTOOL_REQUIRED"
+    exiftool_timeout_seconds: int = Field(
+        default=120, ge=1, le=900, alias="EXIFTOOL_TIMEOUT_SECONDS"
     )
 
     # ── 5. Evidence storage ──────────────────────────────────────────────────
