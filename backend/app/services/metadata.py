@@ -133,12 +133,17 @@ def get_latest(
 
 
 def assert_case_access(
-    session: Session, *, actor: User, case_id: UUID, evidence_id: UUID
+    session: Session,
+    *,
+    actor: User,
+    case_id: UUID,
+    evidence_id: UUID,
+    capability: str = "view_evidence",
 ) -> EvidenceItem:
     item = _evidence(session, evidence_id)
     if item.case_id != case_id:
         raise NotFoundError()
     authorize_case_access(
-        session, user=actor, case_id=case_id, capability="analyze_evidence"
+        session, user=actor, case_id=case_id, capability=capability
     )
     return item
