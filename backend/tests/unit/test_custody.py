@@ -5,9 +5,8 @@ from typing import Any, cast
 
 from uuid import uuid4
 
-from sqlalchemy.orm import Session
-
 import pytest
+from sqlalchemy.orm import Session
 
 from app.core.errors import ValidationError
 from app.models.enums import CustodyEventType
