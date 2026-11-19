@@ -5,7 +5,6 @@ from typing import Any, cast
 from uuid import uuid4
 
 import pytest
-
 from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError, ValidationError
