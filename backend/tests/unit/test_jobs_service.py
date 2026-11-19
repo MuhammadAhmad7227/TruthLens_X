@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
+
+from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError, ValidationError
 from app.models.enums import JobStatus
@@ -46,7 +48,7 @@ def test_create_job_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(jobs, "authorize_case_access", lambda *args, **kwargs: None)
 
     found = jobs.create_job(
-        session,
+        cast(Session, session),
         actor=_actor(),
         case_id=uuid4(),
         pipeline="maintenance.noop",
@@ -56,7 +58,7 @@ def test_create_job_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
         idempotency_key=uuid4(),
     )
 
-    assert found is existing
+    assert found is cast(Any, existing)
     assert session.added == []
 
 
@@ -69,7 +71,7 @@ def test_idempotency_reuse_with_different_pipeline_is_rejected(
 
     with pytest.raises(ConflictError):
         jobs.create_job(
-            session,
+            cast(Session, session),
             actor=_actor(),
             case_id=uuid4(),
             pipeline="maintenance.other",
@@ -105,7 +107,7 @@ def test_cancel_job_changes_state(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(jobs, "get_job", lambda *args, **kwargs: job)
     session = FakeSession()
 
-    result = jobs.cancel_job(session, actor=_actor(), case_id=uuid4(), job_id=uuid4())
+    result = jobs.cancel_job(cast(Session, session), actor=_actor(), case_id=uuid4(), job_id=uuid4())
 
     assert result.status is JobStatus.CANCELLED
     assert session.committed
