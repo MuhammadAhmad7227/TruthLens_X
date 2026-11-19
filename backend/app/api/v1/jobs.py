@@ -6,13 +6,14 @@ import json
 from collections.abc import AsyncIterator
 from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
 from app.api.v1.auth_deps import CurrentPrincipal
 from app.db.session import get_session_factory
 from app.api.v1.deps import SessionDep
 from app.api.v1.job_schemas import CreateJobRequest, JobCreateResponse, JobResponse
+from app.models.enums import JobStatus
 from app.services import jobs as job_service
 
 router = APIRouter(prefix="/cases/{case_id}/jobs", tags=["jobs"])
@@ -49,6 +50,30 @@ def create(
     )
 
 
+@router.get("", response_model=list[JobResponse])
+def list_all(
+    case_id: UUID,
+    principal: CurrentPrincipal,
+    session: SessionDep,
+    status: JobStatus | None = None,
+    pipeline: str | None = Query(default=None, max_length=200),
+    evidence_id: UUID | None = None,
+    requested_by: UUID | None = None,
+) -> list[JobResponse]:
+    return [
+        _response(job)
+        for job in job_service.list_jobs(
+            session,
+            actor=principal.user,
+            case_id=case_id,
+            status=status,
+            pipeline=pipeline,
+            evidence_id=evidence_id,
+            requested_by=requested_by,
+        )
+    ]
+
+
 @router.get("/{job_id}", response_model=JobResponse)
 def get(
     case_id: UUID,
@@ -58,6 +83,18 @@ def get(
 ) -> JobResponse:
     return _response(
         job_service.get_job(session, actor=principal.user, case_id=case_id, job_id=job_id)
+    )
+
+
+@router.post("/{job_id}:retry", response_model=JobResponse, status_code=202)
+def retry(
+    case_id: UUID,
+    job_id: UUID,
+    principal: CurrentPrincipal,
+    session: SessionDep,
+) -> JobResponse:
+    return _response(
+        job_service.retry_job(session, actor=principal.user, case_id=case_id, job_id=job_id)
     )
 
 
