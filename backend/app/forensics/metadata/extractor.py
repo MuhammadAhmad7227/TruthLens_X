@@ -49,7 +49,10 @@ class MetadataExtractionError(RuntimeError):
 
 def _parse_exif_timestamp(value: str) -> dict[str, Any] | None:
     raw = value.strip()
-    match = re.fullmatch(r"(\\d{4})[:/-](\\d{2})[:/-](\\d{2})[ T](\\d{2}):(\\d{2}):(\\d{2})(?:([+-]\\d{2}:?\\d{2}))?", raw)
+    match = re.fullmatch(
+        r"(\d{4})[:/-](\d{2})[:/-](\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:([+-]\d{2}:?\d{2}))?",
+        raw,
+    )
     if not match:
         return None
     year, month, day, hour, minute, second, offset = match.groups()
@@ -291,7 +294,7 @@ class MetadataExtractor:
 def _jpeg_basic_exif(path: Path) -> dict[str, Any]:
     """Read a minimal TIFF/EXIF subset without third-party packages."""
     data = path.read_bytes()[:4 * 1024 * 1024]
-    marker = b"Exif\\x00\\x00"
+    marker = b"Exif\x00\x00"
     pos = data.find(marker)
     if pos < 0:
         return {}
@@ -345,7 +348,7 @@ def _read_ifd(
             start = tiff + pointer
             payload = data[start : start + total]
         if typ == 2:
-            value: Any = payload.rstrip(b"\\x00").decode("utf-8", "replace")
+            value: Any = payload.rstrip(b"\x00").decode("utf-8", "replace")
         elif typ == 3:
             value = struct.unpack(order + "H", payload[:2])[0] if payload else None
         elif typ == 4:
