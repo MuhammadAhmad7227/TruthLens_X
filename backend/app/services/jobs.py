@@ -24,7 +24,9 @@ _ALLOWED_QUEUES = {"analysis.cpu", "analysis.gpu", "ingest", "reports", "mainten
 
 
 def _params_hash(params: dict[str, Any]) -> str:
-    payload = json.dumps(params, sort_keys=True, separators=(",", ":"), default=str).encode()
+    payload = json.dumps(
+        params, sort_keys=True, separators=(",", ":"), default=str
+    ).encode()
     return hashlib.sha256(payload).hexdigest()
 
 
