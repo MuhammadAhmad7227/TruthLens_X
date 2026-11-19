@@ -7,7 +7,6 @@ import time
 from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any
-from sqlalchemy.orm import Session
 from uuid import UUID
 
 import redis
@@ -15,6 +14,7 @@ import structlog
 from celery import Task
 from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db.session import get_session_factory
