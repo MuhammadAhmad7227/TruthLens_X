@@ -20,6 +20,8 @@ from app.models.enums import JobStatus
 from app.services import jobs as job_service
 
 router = APIRouter(prefix="/admin", tags=["jobs"])
+
+
 _ALLOWED_QUEUES = {"ingest", "analysis.cpu", "analysis.gpu", "reports", "maintenance"}
 
 
