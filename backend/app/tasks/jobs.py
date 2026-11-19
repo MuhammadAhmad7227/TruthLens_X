@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from celery import Task
+from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy import select
 
 from app.db.session import get_session_factory
@@ -18,6 +19,12 @@ from app.tasks.celery_app import celery_app
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def _error_class(exc: BaseException) -> str:
+    if isinstance(exc, SoftTimeLimitExceeded):
+        return "TIMEOUT"
+    return type(exc).__name__
 
 
 def _get_job(session: Any, job_id: UUID) -> AnalysisJob:
@@ -54,7 +61,8 @@ class JobTask(Task[Any, Any]):
                 job,
                 JobStatus.RETRYING,
                 celery_task_id=task_id,
-                progress_message=f"Retrying after {type(exc).__name__}",
+                error_class=_error_class(exc),
+                progress_message=f"Retrying after {_error_class(exc)}",
             )
         finally:
             session.close()
@@ -76,7 +84,7 @@ class JobTask(Task[Any, Any]):
                 JobStatus.DEAD_LETTER,
                 celery_task_id=task_id,
                 finished_at=_now(),
-                error_class=type(exc).__name__,
+                error_class=_error_class(exc),
                 error_detail={"message": str(exc)[:1000]},
                 progress_pct=100,
                 progress_message="Dead-lettered after retry limit",
@@ -119,15 +127,13 @@ def execute_job(self: JobTask, job_id: str) -> None:
     except Exception as exc:
         if job is None:
             raise
-        job.error_class = type(exc).__name__
+        job.error_class = _error_class(exc)
         job.error_detail = {"message": str(exc)[:1000]}
         job.progress_message = "Retry scheduled"
         job.status = JobStatus.RETRYING
         session.commit()
-        raise self.retry(
-            exc=exc,
-            countdown=30,
-            max_retries=3,
-        ) from exc
+        retry_count = int(getattr(self.request, "retries", 0))
+        countdown = min(300, 2 ** retry_count * 10)
+        raise self.retry(exc=exc, countdown=countdown, max_retries=3) from exc
     finally:
         session.close()
