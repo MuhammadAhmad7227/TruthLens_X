@@ -1,4 +1,5 @@
 """Durable Celery job lifecycle."""
+
 from __future__ import annotations
 
 import socket

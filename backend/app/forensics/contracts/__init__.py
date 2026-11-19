@@ -1,4 +1,5 @@
 """Versioned contracts for forensic pipeline outputs."""
+
 from app.forensics.contracts.results import (
     RESULT_SCHEMA_VERSION,
     ForensicResultContract,

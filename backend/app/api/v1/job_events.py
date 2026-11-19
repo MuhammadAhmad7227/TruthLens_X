@@ -1,4 +1,5 @@
 """Case-wide real-time job events for M7."""
+
 from __future__ import annotations
 
 import asyncio
@@ -28,9 +29,7 @@ async def case_job_events(websocket: WebSocket, case_id: UUID) -> None:
 
     session = get_session_factory()()
     try:
-        principal = authenticate_access_token(
-            session, get_settings(), token[7:].strip()
-        )
+        principal = authenticate_access_token(session, get_settings(), token[7:].strip())
         authorize_case_access(
             session,
             user=principal.user,
@@ -66,9 +65,7 @@ async def case_job_events(websocket: WebSocket, case_id: UUID) -> None:
                         await websocket.send_json(
                             {
                                 "event": "job",
-                                "job": JobResponse.model_validate(job).model_dump(
-                                    mode="json"
-                                ),
+                                "job": JobResponse.model_validate(job).model_dump(mode="json"),
                             }
                         )
                         last_seen[job.id] = marker

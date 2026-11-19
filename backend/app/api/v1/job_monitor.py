@@ -1,4 +1,5 @@
 """Administrative worker and queue monitoring for M7."""
+
 from __future__ import annotations
 
 from typing import Any
