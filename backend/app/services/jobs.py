@@ -19,6 +19,7 @@ from app.core.errors import (
 )
 from app.models.analysis import AnalysisJob
 from app.models.enums import JobStatus
+from app.models.evidence import EvidenceItem
 from app.models.identity import User
 from app.services.authorization import authorize_case_access
 from app.tasks.jobs import execute_job
@@ -64,6 +65,15 @@ def create_job(
         raise ValidationError("Unsupported queue")
     if not 0 <= priority <= MAX_JOB_PRIORITY:
         raise ValidationError("priority must be between 0 and 9")
+    if evidence_id is not None:
+        evidence = session.scalar(
+            select(EvidenceItem).where(
+                EvidenceItem.id == evidence_id,
+                EvidenceItem.case_id == case_id,
+            )
+        )
+        if evidence is None:
+            raise NotFoundError()
 
     digest = _params_hash(params)
     if idempotency_key is not None:
