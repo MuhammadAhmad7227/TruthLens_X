@@ -7,6 +7,7 @@ import time
 from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any
+from sqlalchemy.orm import Session
 from uuid import UUID
 
 import redis
@@ -32,7 +33,7 @@ def _error_class(exc: BaseException) -> str:
     return type(exc).__name__
 
 
-def _get_job(session: Any, job_id: UUID) -> AnalysisJob:
+def _get_job(session: Session, job_id: UUID) -> AnalysisJob:
     job = session.scalar(select(AnalysisJob).where(AnalysisJob.id == job_id))
     if job is None:
         raise LookupError(f"Analysis job {job_id} does not exist")
@@ -50,7 +51,10 @@ def _analysis_lock(job: AnalysisJob) -> tuple[redis.Redis, Any] | None:
     if job.evidence_id is None:
         return None
     settings = get_settings()
-    client = redis.Redis.from_url(settings.celery_broker_url)
+    broker_url = settings.celery_broker_url
+    if broker_url is None:
+        raise RuntimeError("CELERY_BROKER_URL is not configured")
+    client = redis.Redis.from_url(broker_url)
     timeout = max(settings.celery_task_time_limit, settings.celery_task_soft_time_limit) + 60
     lock = client.lock(
         f"truthlens:analysis:{job.evidence_id}:{job.pipeline}",
@@ -60,7 +64,7 @@ def _analysis_lock(job: AnalysisJob) -> tuple[redis.Redis, Any] | None:
     return client, lock
 
 
-class JobTask(Task[Any, Any]):
+class JobTask(Task):
     max_retries = 3
     acks_late = True
 
@@ -112,7 +116,7 @@ class JobTask(Task[Any, Any]):
             session.close()
 
 
-@celery_app.task(bind=True, base=JobTask, name="truthlens.jobs.execute", ignore_result=True)
+@celery_app.task(bind=True, base=JobTask, name="truthlens.jobs.execute", ignore_result=True)  # type: ignore[untyped-decorator]
 def execute_job(self: JobTask, job_id: str) -> None:
     session = get_session_factory()()
     started = time.monotonic()
