@@ -64,7 +64,7 @@ def _analysis_lock(job: AnalysisJob) -> tuple[redis.Redis, Any] | None:
     return client, lock
 
 
-class JobTask(Task):
+class JobTask(Task):  # type: ignore[misc]
     max_retries = 3
     acks_late = True
 
