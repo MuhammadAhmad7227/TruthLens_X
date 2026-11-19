@@ -208,12 +208,11 @@ class MetadataExtractor:
             if Path(self.settings.exiftool_binary).is_file()
             else None
         )
-        if exiftool:
+        if exiftool and self.settings.enable_exiftool:
             try:
                 return self._extract_exiftool(exiftool, source, mime)
-            except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
-                if self.settings.metadata_exiftool_required:
-                    raise MetadataExtractionError("ExifTool extraction failed") from exc
+            except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+                pass
 
         return self._extract_fallback(source, mime)
 
@@ -236,7 +235,7 @@ class MetadataExtractor:
                 check=True,
                 capture_output=True,
                 text=True,
-                timeout=self.settings.metadata_exiftool_timeout_seconds,
+                timeout=self.settings.exiftool_timeout_seconds,
                 shell=False,
                 env={"PATH": os.environ.get("PATH", "")},
             )
@@ -250,7 +249,7 @@ class MetadataExtractor:
                 extractor_version=version,
                 invocation_args={
                     "argv": args[:-1] + ["<working-copy>"],
-                    "timeout_seconds": self.settings.metadata_exiftool_timeout_seconds,
+                    "timeout_seconds": self.settings.exiftool_timeout_seconds,
                 },
                 raw_tags=raw,
                 normalised=_normalise(raw, mime),
