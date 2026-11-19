@@ -109,9 +109,7 @@ def monitor(principal: CurrentPrincipal) -> dict[str, Any]:
 
 
 @router.post("/queues/{queue_name}:purge")
-def purge_queue_endpoint(
-    queue_name: str, principal: CurrentPrincipal
-) -> dict[str, object]:
+def purge_queue_endpoint(queue_name: str, principal: CurrentPrincipal) -> dict[str, object]:
     _require_admin(principal)
     if queue_name not in _ALLOWED_QUEUES:
         raise ValidationError("Unsupported queue")
