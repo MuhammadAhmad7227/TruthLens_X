@@ -51,13 +51,16 @@ def _queue_lengths(broker_url: str) -> dict[str, int]:
 def monitor(principal: CurrentPrincipal) -> dict[str, Any]:
     _require_admin(principal)
     settings = get_settings()
-    celery = Celery("truthlens-monitor", broker=settings.celery_broker_url)
+    broker_url = settings.celery_broker_url
+    if broker_url is None:
+        raise ValidationError("CELERY_BROKER_URL is not configured")
+    celery = Celery("truthlens-monitor", broker=broker_url)
     inspect = celery.control.inspect(timeout=1.0)
     active = inspect.active() or {}
     reserved = inspect.reserved() or {}
     stats = inspect.stats() or {}
     try:
-        queues = _queue_lengths(settings.celery_broker_url)
+        queues = _queue_lengths(broker_url)
     except Exception:
         queues = {}
 
@@ -113,7 +116,10 @@ def purge_queue(queue_name: str, principal: CurrentPrincipal) -> dict[str, objec
     if queue_name not in _ALLOWED_QUEUES:
         raise ValidationError("Unsupported queue")
     settings = get_settings()
-    client = redis.Redis.from_url(settings.celery_broker_url, decode_responses=True)
+    broker_url = settings.celery_broker_url
+    if broker_url is None:
+        raise ValidationError("CELERY_BROKER_URL is not configured")
+    client = redis.Redis.from_url(broker_url, decode_responses=True)
     try:
         keys = list(client.scan_iter(match=f"{queue_name}*"))
         removed = int(client.delete(*keys)) if keys else 0
