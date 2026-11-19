@@ -135,6 +135,7 @@ async def events(
     session: SessionDep,
 ) -> StreamingResponse:
     job_service.get_job(session, actor=principal.user, case_id=case_id, job_id=job_id)
+    session.close()
     raw_last_id = request.headers.get("Last-Event-ID")
     try:
         last_event_id = int(raw_last_id) if raw_last_id else 0
