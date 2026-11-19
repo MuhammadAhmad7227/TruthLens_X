@@ -15,11 +15,11 @@ from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.models.analysis import AnalysisJob
 from app.models.enums import JobStatus
 from app.models.identity import User
-from app.services.authorization import authorize_case_access
-from app.tasks.jobs import execute_job
-
 MAX_PIPELINE_NAME_LENGTH = 200
 MAX_JOB_PRIORITY = 9
+
+from app.services.authorization import authorize_case_access
+from app.tasks.jobs import execute_job
 
 
 def _params_hash(params: dict[str, Any]) -> str:
