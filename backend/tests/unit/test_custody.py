@@ -77,7 +77,7 @@ def test_append_event_creates_genesis_record() -> None:
 
     assert event.sequence == 1
     assert event.prev_hash == "0" * 64
-    assert event.record_hash == custody.record_digest(cast(CustodyEvent, event))
+    assert event.record_hash == custody.record_digest(event)
     assert session.added == [event]
 
 
