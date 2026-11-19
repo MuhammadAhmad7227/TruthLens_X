@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import redis
 from celery import Celery
 from fastapi import APIRouter
 
@@ -19,8 +20,6 @@ def _require_admin(principal: CurrentPrincipal) -> None:
 
 
 def _queue_lengths(broker_url: str) -> dict[str, int]:
-    import redis
-
     client = redis.Redis.from_url(broker_url, decode_responses=True)
     try:
         return {
