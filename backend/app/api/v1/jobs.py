@@ -167,10 +167,8 @@ async def events(
                     f"data: {json.dumps(payload, separators=(',', ':'))}\n\n"
                 )
             if terminal:
-                emitted_terminal = True
                 break
             await asyncio.sleep(1)
-
 
     return StreamingResponse(
         stream(),
