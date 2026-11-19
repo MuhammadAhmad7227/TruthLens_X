@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -20,7 +19,6 @@ from app.tasks.jobs import execute_job
 
 MAX_PIPELINE_NAME_LENGTH = 200
 MAX_JOB_PRIORITY = 9
-
 
 
 def _params_hash(params: dict[str, Any]) -> str:
