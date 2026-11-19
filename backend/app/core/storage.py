@@ -11,6 +11,7 @@ import hashlib
 import os
 from collections.abc import Iterator
 from contextlib import suppress
+from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import BinaryIO, NamedTuple
 
