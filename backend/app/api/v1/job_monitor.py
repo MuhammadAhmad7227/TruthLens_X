@@ -8,8 +8,8 @@ from uuid import UUID
 
 import redis
 from celery import Celery
-from sqlalchemy import func, select
 from fastapi import APIRouter, HTTPException
+from sqlalchemy import func, select
 
 from app.api.v1.auth_deps import CurrentPrincipal
 from app.core.config import get_settings
@@ -20,6 +20,7 @@ from app.models.enums import JobStatus
 from app.services import jobs as job_service
 
 router = APIRouter(prefix="/admin", tags=["jobs"])
+_ALLOWED_QUEUES = {"ingest", "analysis.cpu", "analysis.gpu", "reports", "maintenance"}
 
 
 def _require_admin(principal: CurrentPrincipal) -> None:
@@ -121,7 +122,17 @@ def purge_queue(queue_name: str, principal: CurrentPrincipal) -> dict[str, objec
 
 @router.post("/queues/{queue_name}:purge")
 def purge_queue_endpoint(queue_name: str, principal: CurrentPrincipal) -> dict[str, object]:
-    return purge_queue(queue_name, principal)
+    _require_admin(principal)
+    if queue_name not in _ALLOWED_QUEUES:
+        raise ValidationError("Unsupported queue")
+    settings = get_settings()
+    client = redis.Redis.from_url(settings.celery_broker_url, decode_responses=True)
+    try:
+        keys = list(client.scan_iter(match=f"{queue_name}*"))
+        removed = int(client.delete(*keys)) if keys else 0
+    finally:
+        client.close()
+    return {"queue": queue_name, "removed_keys": removed}
 
 
 @router.post("/jobs/{job_id}:requeue")
