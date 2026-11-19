@@ -19,6 +19,8 @@ class CreateJobRequest(BaseModel):
 
 
 class JobResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
     id: UUID
     case_id: UUID
     evidence_id: UUID | None
