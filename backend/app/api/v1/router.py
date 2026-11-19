@@ -12,6 +12,7 @@ from app.api.v1 import (
     evidence,
     job_events,
     job_monitor,
+    metadata,
     jobs,
     system,
 )
@@ -26,5 +27,6 @@ api_router.include_router(custody.router, prefix="/api/v1")
 api_router.include_router(jobs.router, prefix="/api/v1")
 api_router.include_router(job_monitor.router, prefix="/api/v1")
 api_router.include_router(job_events.router, prefix="/api/v1")
+api_router.include_router(metadata.router, prefix="/api/v1")
 
 __all__ = ["api_router"]
