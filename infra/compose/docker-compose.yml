@@ -131,6 +131,22 @@ services:
       - evidence:/evidence
     networks: [tlxnet]
 
+  worker-gpu:
+    build:
+      context: ../../
+      dockerfile: infra/docker/api.Dockerfile
+    restart: unless-stopped
+    command: ["celery", "-A", "app.tasks.celery_app:celery_app", "worker", "--loglevel=INFO", "--queues=analysis.gpu", "--prefetch-multiplier=1"]
+    environment: *backend-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - evidence:/evidence
+    networks: [tlxnet]
+
   api:
     build:
       context: ../../
