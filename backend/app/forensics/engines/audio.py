@@ -3,26 +3,30 @@
 from __future__ import annotations
 
 import json
-import subprocess
-from typing import Any
+import shutil
+import subprocess  # nosec B404
+from typing import Any, cast
 
 
 def ffprobe(path: str) -> dict[str, Any]:
+    binary = shutil.which("ffprobe")
+    if binary is None:
+        return {"error_class": "DEPENDENCY_UNAVAILABLE", "detail": "ffprobe not installed"}
     completed = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_format", "-show_streams", "-of", "json", path],
+        [binary, "-v", "error", "-show_format", "-show_streams", "-of", "json", path],
         capture_output=True,
         text=True,
         check=False,
         shell=False,
-    )  # noqa: S603
+    )  # nosec B603, B607
     if completed.returncode != 0:
         return {"error_class": "DECODE_FAILED", "detail": "ffprobe failed"}
-    return json.loads(completed.stdout)
+    return cast(dict[str, Any], json.loads(completed.stdout))
 
 
 def asr(path: str, model_name: str) -> dict[str, Any]:
     try:
-        from faster_whisper import WhisperModel
+        from faster_whisper import WhisperModel  # type: ignore[import-not-found]
     except ImportError:
         return {"error_class": "MODEL_UNAVAILABLE", "transcript": []}
     model = WhisperModel(model_name, device="cpu", compute_type="int8")
