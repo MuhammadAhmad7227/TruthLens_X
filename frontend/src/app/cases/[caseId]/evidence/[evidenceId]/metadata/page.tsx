@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MetadataInspector } from "@/components/metadata/MetadataInspector";
+import { MetadataInspector } from "../../../../../components/metadata/MetadataInspector";
 
 type RecordShape = {
   id: string;
