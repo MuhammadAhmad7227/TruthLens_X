@@ -6,6 +6,10 @@ import hashlib
 import math
 from typing import Any
 
+MAX_PARAMETER = 100
+DEFAULT_QUALITY = 90
+DEFAULT_SCALE = 10
+
 
 def byte_entropy(data: bytes) -> float:
     if not data:
@@ -18,30 +22,12 @@ def byte_entropy(data: bytes) -> float:
 
 
 def perceptual_digest(data: bytes) -> str:
-    # Deterministic content digest used as a safe fallback when image libraries are unavailable.
     return hashlib.sha256(b"phash-fallback:" + data).hexdigest()[:16]
 
 
-def ela_parameters(*, quality: int = 90, scale: int = 10) -> dict[str, int]:
-    MAX_PARAMETER = 100
-
-
-def ela_parametersPLACEHOLDER
-        raise ValueError("quality and scale must be 1..100")
-    return {"quality": quality, "scale": scale}
-
-
-def analyse_bytes(data: bytes) -> dict[str, Any]:
-    return {
-        "entropy": byte_entropy(data),
-        "phash_fallback": perceptual_digest(data),
-        "requires_human_verification": True,
-    }
-
-
-def ela_parameters(*, quality: int = 90, scale: int = 10) -> dict[str, int]:
-    if not 1 <= quality <= 100 or not 1 <= scale <= 100:
-        raise ValueError("quality and scale must be 1..100")
+def ela_parameters(*, quality: int = DEFAULT_QUALITY, scale: int = DEFAULT_SCALE) -> dict[str, int]:
+    if not 1 <= quality <= MAX_PARAMETER or not 1 <= scale <= MAX_PARAMETER:
+        raise ValueError(f"quality and scale must be 1..{MAX_PARAMETER}")
     return {"quality": quality, "scale": scale}
 
 
