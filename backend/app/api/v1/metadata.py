@@ -1,4 +1,5 @@
 """M8 metadata extraction endpoints."""
+
 from __future__ import annotations
 
 from uuid import UUID, uuid4
@@ -13,9 +14,7 @@ from app.api.v1.metadata_schemas import (
     MetadataListResponse,
     MetadataRecordResponse,
 )
-from app.core.config import get_settings
-from app.services import jobs as job_service
-from app.services import metadata as metadata_service
+from app.services import jobs as job_service, metadata as metadata_service
 
 router = APIRouter(prefix="/cases/{case_id}/evidence", tags=["metadata"])
 
@@ -94,9 +93,7 @@ def latest_metadata(
     metadata_service.assert_case_access(
         session, actor=principal.user, case_id=case_id, evidence_id=evidence_id
     )
-    record = metadata_service.get_latest(
-        session, actor=principal.user, evidence_id=evidence_id
-    )
+    record = metadata_service.get_latest(session, actor=principal.user, evidence_id=evidence_id)
     return MetadataRecordResponse.model_validate(record)
 
 
