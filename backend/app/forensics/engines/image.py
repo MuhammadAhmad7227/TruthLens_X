@@ -23,7 +23,10 @@ def perceptual_digest(data: bytes) -> str:
 
 
 def ela_parameters(*, quality: int = 90, scale: int = 10) -> dict[str, int]:
-    if not 1 <= quality <= 100 or not 1 <= scale <= 100:
+    MAX_PARAMETER = 100
+
+
+def ela_parametersPLACEHOLDER
         raise ValueError("quality and scale must be 1..100")
     return {"quality": quality, "scale": scale}
 
