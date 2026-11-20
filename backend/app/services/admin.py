@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
+
+SHA256_HEX_LENGTH = 64
 from uuid import UUID
 
 from sqlalchemy import select
@@ -52,6 +54,6 @@ def validate_model_registration(payload: dict[str, Any]) -> dict[str, Any]:
     required = ("name", "version", "weights_sha256", "engine_name")
     if any(not payload.get(k) for k in required):
         raise ValidationError("Model registration is incomplete")
-    if len(str(payload["weights_sha256"])) != 64:
+    if len(str(payload["weights_sha256"])) != SHA256_HEX_LENGTH:
         raise ValidationError("weights_sha256 must be SHA-256")
     return payload
