@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class MetadataRecordResponse(BaseModel):
+class MetadataRecordResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
