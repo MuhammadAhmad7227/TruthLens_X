@@ -11,23 +11,7 @@ def inspect_pdf(data: bytes) -> dict[str, Any]:
     try:
         import io
 
-        import pikepdf
-
-        with pikepdf.open(io.BytesIO(data)) as pdf:
-            return {
-                "format": "pdf",
-                "pages": len(pdf.pages),
-                "metadata": dict(pdf.docinfo),
-                "engine": "pikepdf",
-            }
-    except ImportError:
-        return {
-            "format": "pdf",
-            "pages": None,
-            "engine": "signature-only",
-            "error_class": "MODEL_UNAVAILABLE",
-        }
-        import pikepdf
+        import pikepdf  # type: ignore[import-not-found]
 
         with pikepdf.open(io.BytesIO(data)) as pdf:
             return {
