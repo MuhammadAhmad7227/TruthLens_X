@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError, ValidationError
+from app.models.enums import UserStatus
 from app.models.identity import User, UserSession
 
 
@@ -17,7 +18,7 @@ def suspend_user(session: Session, user_id: UUID) -> User:
     user = session.get(User, user_id)
     if user is None:
         raise NotFoundError()
-    user.status = "suspended"
+    user.status = UserStatus.SUSPENDED
     session.commit()
     return user
 
@@ -26,7 +27,7 @@ def deactivate_user(session: Session, user_id: UUID) -> User:
     user = session.get(User, user_id)
     if user is None:
         raise NotFoundError()
-    user.status = "deactivated"
+    user.status = UserStatus.DEACTIVATED
     user.deleted_at = datetime.now(UTC)
     session.commit()
     return user
