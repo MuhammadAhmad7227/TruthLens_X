@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from uuid import UUID, uuid4
-from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Header, status
 
@@ -11,12 +10,14 @@ from app.api.v1.auth_deps import CurrentPrincipal
 from app.api.v1.deps import SessionDep
 from app.api.v1.metadata_schemas import (
     MetadataDiffResponse,
+    MetadataExtractResponse,
     MetadataListResponse,
     MetadataRecordResponse,
 )
 from app.services import jobs as job_service, metadata as metadata_service
 
 router = APIRouter(prefix="/cases/{case_id}/evidence", tags=["metadata"])
+
 
 @router.post(
     "/{evidence_id}/metadata:reextract",
@@ -90,13 +91,15 @@ def latest_metadata(
     session: SessionDep,
 ) -> MetadataRecordResponse:
     metadata_service.assert_case_access(
-    metadata_service.assert_case_access(
         session, actor=principal.user, case_id=case_id, evidence_id=evidence_id
     )
     record = metadata_service.get_latest(session, actor=principal.user, evidence_id=evidence_id)
     return MetadataRecordResponse.model_validate(record)
 
 
+@router.get(
+    "/{evidence_id}/metadata/diff",
+    response_model=MetadataDiffResponse,
 )
 def metadata_diff(
     case_id: UUID,
