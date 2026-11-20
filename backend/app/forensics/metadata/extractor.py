@@ -250,7 +250,7 @@ class MetadataExtractor:
                 "-n",
                 str(working_copy),
             ]
-            completed = subprocess.run(
+            completed = subprocess.run(  # nosec S603
                 args,
                 cwd=workdir,
                 check=True,
@@ -278,7 +278,7 @@ class MetadataExtractor:
             )
 
     def _version(self, executable: str) -> str:
-        completed = subprocess.run(
+        completed = subprocess.run(  # nosec S603
             [executable, "-ver"],
             check=True,
             capture_output=True,
