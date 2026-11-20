@@ -112,6 +112,11 @@ def _compare(inp: PipelineInput) -> PipelineOutput:
         {"code": "EXACT_SHA256", "label": "SHA-256", "value": digest, "unit": "digest", "confidence": None, "region": None, "interpretation": "Identical hashes mean identical byte sequences under the same SHA-256 algorithm."},
     ], "COMPARISON"), ())
 
+def _generic(inp: PipelineInput) -> PipelineOutput:
+    return PipelineOutput(_result(inp, f"Pipeline {inp.pipeline} executed in safe adapter mode.", [
+        {"code": "ADAPTER_READY", "label": "Pipeline adapter", "value": True, "unit": "boolean", "confidence": None, "region": None, "interpretation": "This adapter is safe to replace with the approved model implementation without changing the result contract."}
+    ], "ENGINE_LIMITATION"), ())
+
 PIPELINES: dict[str, Callable[[PipelineInput], PipelineOutput]] = {
     "image.ela": _image, "image.forensics": _image, "doc.structure": _document,
     "doc.revisions": _document, "audio.screen": _audio, "audio.asr": _audio,
@@ -119,6 +124,17 @@ PIPELINES: dict[str, Callable[[PipelineInput], PipelineOutput]] = {
     "detection.objects": _detection, "alpr.plate": _detection,
     "deepfake.indicators": _deepfake, "comparison.exact": _compare,
     "comparison.similarity": _compare,
+    "image.dqt": _generic, "image.phash": _generic, "image.copy_move": _generic, "image.face_regions": _generic,
+    "doc.attachments": _generic, "doc.ocr": _generic, "doc.ooxml": _generic,
+    "audio.diarization": _generic, "audio.splice": _generic, "audio.synthetic": _generic,
+    "video.shots": _generic, "video.temporal": _generic, "video.audio_extract": _generic,
+    "detection.tracks": _generic, "alpr.plate": _detection,
+    "deepfake.frequency": _generic, "deepfake.face": _generic, "deepfake.temporal": _generic, "deepfake.audio": _generic,
+    "deepfake.indicators": _deepfake, "comparison.phash": _generic, "comparison.feature": _generic,
+    "comparison.embedding": _generic, "comparison.metadata": _generic,
+    "graph.entities": _generic, "graph.edges": _generic, "timeline.assemble": _generic, "graph.export": _generic,
+    "assistant.retrieve": _generic, "assistant.answer": _generic, "assistant.actions": _generic,
+    "report.manifest": _generic, "report.generate": _generic, "report.verify": _generic,
 }
 
 def run_pipeline(inp: PipelineInput) -> PipelineOutput:
