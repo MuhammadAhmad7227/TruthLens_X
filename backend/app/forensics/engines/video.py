@@ -3,21 +3,25 @@
 from __future__ import annotations
 
 import json
-import subprocess
-from typing import Any
+import shutil
+import subprocess  # nosec B404
+from typing import Any, cast
 
 
 def probe(path: str) -> dict[str, Any]:
+    binary = shutil.which("ffprobe")
+    if binary is None:
+        return {"error_class": "DEPENDENCY_UNAVAILABLE", "detail": "ffprobe not installed"}
     p = subprocess.run(
-        ["ffprobe", "-v", "error", "-of", "json", "-show_format", "-show_streams", path],
+        [binary, "-v", "error", "-of", "json", "-show_format", "-show_streams", path],
         capture_output=True,
         text=True,
         check=False,
         shell=False,
-    )  # noqa: S603
+    )  # nosec B603, B607
     if p.returncode != 0:
         return {"error_class": "DECODE_FAILED"}
-    return json.loads(p.stdout)
+    return cast(dict[str, Any], json.loads(p.stdout))
 
 
 def frame_plan(duration_seconds: float, interval: float) -> list[float]:
