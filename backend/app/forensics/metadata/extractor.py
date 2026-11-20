@@ -124,6 +124,11 @@ def _normalise(raw: dict[str, Any], mime: str) -> dict[str, Any]:
         if timestamp:
             timestamps.append(timestamp)
 
+    distinct_timestamp_values = {item["raw_value"] for item in timestamps}
+    if len(distinct_timestamp_values) > 1:
+        for item in timestamps:
+            item["conflict_group"] = "timestamp-1"
+
     latitude = raw.get("GPSLatitude")
     longitude = raw.get("GPSLongitude")
     location = None
