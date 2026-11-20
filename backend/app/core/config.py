@@ -265,21 +265,12 @@ class Settings(BaseSettings):
 
     # ── 7. Copyleft and egress flags (ADR-0001, ADR-0012) ────────────────────
     enable_ultralytics: bool = Field(default=False, alias="ENABLE_ULTRALYTICS")
-    enable_agpl_pymupdf: bool = Field(default=False, alias="ENABLE_AGPL_PYMuPDF")
-    #: ADR-0003: the one flag that defaults ON — subprocess-isolated and removable.
-    enable_exiftool: bool = Field(default=True, alias="ENABLE_EXIFTOOL")
-    exiftool_binary: Path | None = Field(default=None, alias="EXIFTOOL_BINARY")
-    exiftool_timeout_seconds: int = Field(
-        default=120, ge=5, le=3600, alias="EXIFTOOL_TIMEOUT_SECONDS"
-    )
+    enable_agpl_pymupdf: bool = Field(default=False, alias="ENABLE_AGPL_PyMuPDF")
     enable_poppler: bool = Field(default=False, alias="ENABLE_POPPLER")
     enable_online_geocoding: bool = Field(default=False, alias="ENABLE_ONLINE_GEOCODING")
-    #: ADR-0015: DISABLED by default; dataset licence unverified (finding L-7).
     gazetteer_enabled: bool = Field(default=False, alias="GAZETTEER_ENABLED")
     gazetteer_path: Path | None = Field(default=None, alias="GAZETTEER_PATH")
-    #: Mandatory if the gazetteer is enabled: every plausible candidate licence requires attribution.
     gazetteer_attribution: str = Field(default="", alias="GAZETTEER_ATTRIBUTION")
-    #: The master egress switch. Governs every per-feature flag (ADR-0012).
     enable_external_enrichment: bool = Field(default=False, alias="ENABLE_EXTERNAL_ENRICHMENT")
     enable_av_scan: bool = Field(default=False, alias="ENABLE_AV_SCAN")
     enable_av_updates: bool = Field(default=False, alias="ENABLE_AV_UPDATES")
