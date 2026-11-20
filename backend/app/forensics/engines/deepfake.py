@@ -27,14 +27,3 @@ def advisory(indicators: dict[str, float]) -> dict[str, object]:
         "disclaimer": "Advisory indicators do not prove that media is synthetic or authentic.",
         "requires_human_verification": True,
     }
-    values = [max(0.0, min(100.0, v)) for v in indicators.values()]
-    score = sum(values) / len(values) if values else 0.0
-    spread = (max(values) - min(values)) if values else 0.0
-    margin = min(25.0, spread / 2)
-    return {
-        "advisory_score": score,
-        "confidence_interval": [max(0, score - margin), min(100, score + margin)],
-        "indicators": indicators,
-        "disclaimer": "Advisory indicators do not prove that media is synthetic or authentic.",
-        "requires_human_verification": True,
-    }
