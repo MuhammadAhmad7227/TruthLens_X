@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Annotated
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Header, status
@@ -30,7 +31,7 @@ def request_metadata_extraction(
     evidence_id: UUID,
     principal: CurrentPrincipal,
     session: SessionDep,
-    idempotency_key: UUID | None = Header(default=None, alias="Idempotency-Key"),
+    idempotency_key: Annotated[UUID | None, Header(alias="Idempotency-Key")] = None,
 ) -> MetadataExtractResponse:
     metadata_service.assert_case_access(
         session,
