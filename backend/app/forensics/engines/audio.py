@@ -12,7 +12,7 @@ def ffprobe(path: str) -> dict[str, Any]:
     binary = shutil.which("ffprobe")
     if binary is None:
         return {"error_class": "DEPENDENCY_UNAVAILABLE", "detail": "ffprobe not installed"}
-    completed = subprocess.run(
+    completed = subprocess.run( # nosec B603
         [binary, "-v", "error", "-show_format", "-show_streams", "-of", "json", path],
         capture_output=True,
         text=True,
