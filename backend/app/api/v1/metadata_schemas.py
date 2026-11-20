@@ -1,11 +1,12 @@
 """Metadata API schemas."""
+
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 
 class MetadataRecordResponse(BaseModel):
