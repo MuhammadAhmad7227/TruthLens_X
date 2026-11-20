@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 from sqlalchemy import select
@@ -51,8 +52,6 @@ def run_forensic_job(session: Session, *, job: AnalysisJob, source: bytes) -> An
 
 
 def compare_bytes(*, left: bytes, right: bytes) -> dict[str, Any]:
-    import hashlib
-
     left_hash, right_hash = hashlib.sha256(left).hexdigest(), hashlib.sha256(right).hexdigest()
     return {
         "method": "exact_hash",
