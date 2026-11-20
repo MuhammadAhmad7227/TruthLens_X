@@ -34,3 +34,17 @@ def analyse_bytes(data: bytes) -> dict[str, Any]:
         "phash_fallback": perceptual_digest(data),
         "requires_human_verification": True,
     }
+
+
+def ela_parameters(*, quality: int = 90, scale: int = 10) -> dict[str, int]:
+    if not 1 <= quality <= 100 or not 1 <= scale <= 100:
+        raise ValueError("quality and scale must be 1..100")
+    return {"quality": quality, "scale": scale}
+
+
+def analyse_bytes(data: bytes) -> dict[str, Any]:
+    return {
+        "entropy": byte_entropy(data),
+        "phash_fallback": perceptual_digest(data),
+        "requires_human_verification": True,
+    }
