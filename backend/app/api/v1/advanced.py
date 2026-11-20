@@ -78,7 +78,7 @@ def validate_admin_setting(key:str,value:Any,principal:CurrentPrincipal)->dict[s
     return {"key":key,"value":validate_setting(key,value)}
 
 @router.get("/admin/alerts")
-def admin_alerts(failed_jobs:int=0,auth_denials:int=0,integrity_failures:int=0,principal:CurrentPrincipal=...)->dict[str,Any]:
+def admin_alerts(failed_jobs:int=0,auth_denials:int=0,integrity_failures:int=0,principal:CurrentPrincipal=None)->dict[str,Any]:
     if principal is None or principal.user.global_role.value!="admin": raise PermissionError("admin required")
     return {"alerts":alert_conditions(failed_jobs=failed_jobs,auth_denials=auth_denials,integrity_failures=integrity_failures)}
 
