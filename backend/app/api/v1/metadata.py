@@ -14,7 +14,8 @@ from app.api.v1.metadata_schemas import (
     MetadataListResponse,
     MetadataRecordResponse,
 )
-from app.services import jobs as job_service, metadata as metadata_service
+from app.services import jobs as job_service
+from app.services import metadata as metadata_service
 
 router = APIRouter(prefix="/cases/{case_id}/evidence", tags=["metadata"])
 
@@ -29,7 +30,7 @@ def request_metadata_extraction(
     evidence_id: UUID,
     principal: CurrentPrincipal,
     session: SessionDep,
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    idempotency_key: UUID | None = Header(default=None, alias="Idempotency-Key"),
 ) -> MetadataExtractResponse:
     metadata_service.assert_case_access(
         session,
@@ -48,7 +49,7 @@ def request_metadata_extraction(
         params={"schema_version": "1.0"},
         queue="analysis.cpu",
         priority=5,
-        idempotency_key=idempotency_key or f"metadata-reextract:{evidence_id}:{uuid4()}",
+        idempotency_key=idempotency_key or uuid4(),
     )
     return MetadataExtractResponse(
         job_id=job.id,
