@@ -10,7 +10,7 @@ import os
 import re
 import shutil
 import struct
-import subprocess
+import subprocess  # noqa: S404  # nosec B404
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime
@@ -21,6 +21,14 @@ from app.core.config import Settings
 
 SCHEMA_VERSION = "1.0"
 EXIFTOOL_DEFAULT = "exiftool"
+OFFSET_WITH_COLON_LENGTH = 5
+TIFF_MAGIC = 42
+MAX_IFD_DEPTH = 3
+INLINE_VALUE_BYTES = 4
+EXIF_IFD_POINTER_TAG = 0x8769
+TYPE_ASCII = 2
+TYPE_SHORT = 3
+TYPE_LONG = 4
 
 _TIMESTAMP_FIELDS = {
     "DateTimeOriginal": ("device_clock", "medium", "second"),
@@ -59,7 +67,7 @@ def _parse_exif_timestamp(value: str) -> dict[str, Any] | None:
     try:
         dt = datetime.fromisoformat(
             f"{year}-{month}-{day}T{hour}:{minute}:{second}"
-            + ((offset[:3] + ":" + offset[-2:]) if offset and len(offset) == 5 else (offset or ""))
+            + ((offset[:3] + ":" + offset[-2:]) if offset and len(offset) == OFFSET_WITH_COLON_LENGTH else (offset or ""))
         )
     except ValueError:
         return None
@@ -239,7 +247,7 @@ class MetadataExtractor:
                 capture_output=True,
                 text=True,
                 timeout=self.settings.exiftool_timeout_seconds,
-                shell=False,
+                shell=False,  # noqa: S603  # nosec B603
                 env={"PATH": os.environ.get("PATH", "")},
             )
             payload = json.loads(completed.stdout)
@@ -251,7 +259,7 @@ class MetadataExtractor:
                 extractor="exiftool",
                 extractor_version=version,
                 invocation_args={
-                    "argv": args[:-1] + ["<working-copy>"],
+                    "argv": [*args[:-1], "<working-copy>"],
                     "timeout_seconds": self.settings.exiftool_timeout_seconds,
                 },
                 raw_tags=raw,
@@ -266,7 +274,7 @@ class MetadataExtractor:
             capture_output=True,
             text=True,
             timeout=10,
-            shell=False,
+            shell=False,  # noqa: S603  # nosec B603
             env={"PATH": os.environ.get("PATH", "")},
         )
         return completed.stdout.strip() or "unknown"
@@ -309,7 +317,7 @@ def _jpeg_basic_exif(path: Path) -> dict[str, Any]:
     else:
         return {}
     magic = struct.unpack_from(order + "H", data, tiff + 2)[0]
-    if magic != 42:
+    if magic != TIFF_MAGIC:
         return {}
     ifd_offset = struct.unpack_from(order + "I", data, tiff + 4)[0]
     return _read_ifd(data, tiff, tiff + ifd_offset, order, 0)
@@ -318,7 +326,7 @@ def _jpeg_basic_exif(path: Path) -> dict[str, Any]:
 def _read_ifd(
     data: bytes, tiff: int, offset: int, order: str, depth: int
 ) -> dict[str, Any]:
-    if depth > 3 or offset + 2 > len(data):
+    if depth > MAX_IFD_DEPTH or offset + 2 > len(data):
         return {}
     count = struct.unpack_from(order + "H", data, offset)[0]
     values: dict[str, Any] = {}
@@ -341,24 +349,24 @@ def _read_ifd(
         if size is None:
             continue
         total = size * count_value
-        if total <= 4:
+        if total <= INLINE_VALUE_BYTES:
             payload = raw_value[:total]
         else:
             pointer = struct.unpack(order + "I", raw_value)[0]
             start = tiff + pointer
             payload = data[start : start + total]
-        if typ == 2:
+        if typ == TYPE_ASCII:
             value: Any = payload.rstrip(b"\x00").decode("utf-8", "replace")
-        elif typ == 3:
+        elif typ == TYPE_SHORT:
             value = struct.unpack(order + "H", payload[:2])[0] if payload else None
-        elif typ == 4:
+        elif typ == TYPE_LONG:
             value = struct.unpack(order + "I", payload[:4])[0] if payload else None
         else:
             value = payload.hex()
         name = tags.get(tag)
         if name:
             values[name] = value
-        if tag == 0x8769 and typ == 4:
+        if tag == EXIF_IFD_POINTER_TAG and typ == TYPE_LONG:
             child = struct.unpack(order + "I", raw_value)[0]
             values.update(_read_ifd(data, tiff, tiff + child, order, depth + 1))
     return values
