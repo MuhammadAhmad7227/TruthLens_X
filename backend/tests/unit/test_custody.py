@@ -142,7 +142,9 @@ def test_verify_chain_detects_a_broken_hash(monkeypatch: pytest.MonkeyPatch) -> 
     )
     monkeypatch.setattr(custody, "authorize_case_access", lambda *args, **kwargs: None)
     monkeypatch.setattr(custody, "list_events", lambda *args, **kwargs: [event])
-    valid, broken = custody.verify_chain(cast(Session, FakeSession()), actor=actor, case_id=case_id)
+    valid, broken = custody.verify_chain(
+        cast(Session, FakeSession()), actor=actor, case_id=case_id
+    )
     assert not valid
     assert broken == event.id
 
