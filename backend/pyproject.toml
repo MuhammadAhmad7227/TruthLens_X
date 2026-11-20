@@ -32,6 +32,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+forensics = [
+    "reportlab==4.4.10",
+    "pikepdf==10.3.0",
+    "faster-whisper==1.2.1",
+]
 # Database extra. Kept separate so the API can be imported and its configuration validated
 # in environments without a driver installed (CI unit tests, linting, docs builds).
 db = [
