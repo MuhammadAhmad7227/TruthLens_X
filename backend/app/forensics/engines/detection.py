@@ -35,7 +35,7 @@ class GreedyTracker:
         result = []
         for det in detections:
             best = max(
-                ((tid, self.iou(old.bbox, det)) for tid, old in self.tracks.items()),
+                ((tid, self.iou(old.bbox, det.bbox)) for tid, old in self.tracks.items()),
                 key=lambda x: x[1],
                 default=(0, 0.0),
             )
