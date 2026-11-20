@@ -45,3 +45,18 @@ class GreedyTracker:
             self.tracks[tid] = det
             result.append((tid, det))
         return result
+
+    def update(self, detections: list[Detection]) -> list[tuple[int, Detection]]:
+        result = []
+        for det in detections:
+            best = max(
+                ((tid, self.iou(old.bbox, det)) for tid, old in self.tracks.items()),
+                key=lambda x: x[1],
+                default=(0, 0.0),
+            )
+            tid = best[0] if best[1] >= self.iou_threshold else self.next_id
+            if tid == self.next_id:
+                self.next_id += 1
+            self.tracks[tid] = det
+            result.append((tid, det))
+        return result
