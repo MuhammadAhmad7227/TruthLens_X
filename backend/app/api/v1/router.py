@@ -12,8 +12,8 @@ from app.api.v1 import (
     evidence,
     job_events,
     job_monitor,
-    metadata,
     jobs,
+    metadata,
     system,
 )
 
