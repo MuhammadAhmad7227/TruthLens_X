@@ -34,3 +34,10 @@ class MetadataExtractResponse(BaseModel):
     status: str
     pipeline: str
     pipeline_version: str
+
+
+class MetadataDiffResponse(BaseModel):
+    evidence_id: UUID
+    base_id: UUID
+    other_id: UUID
+    changes: dict[str, dict[str, Any]]
