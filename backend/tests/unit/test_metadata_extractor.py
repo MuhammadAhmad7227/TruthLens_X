@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from app.core.config import Settings
-from app.forensics.metadata.extractor import MetadataExtractor
+from app.forensics.metadata.extractor import MetadataExtractor, _normalise
 
 
 def test_fallback_extraction_is_reproducible(monkeypatch, tmp_path: Path) -> None:
@@ -26,8 +26,6 @@ def test_fallback_extraction_is_reproducible(monkeypatch, tmp_path: Path) -> Non
 
 
 def test_timestamp_conflicts_are_retained() -> None:
-    from app.forensics.metadata.extractor import _normalise
-
     raw = {
         "DateTimeOriginal": "2026:03:14 18:22:07",
         "ModifyDate": "2026:03:15 09:00:00",
