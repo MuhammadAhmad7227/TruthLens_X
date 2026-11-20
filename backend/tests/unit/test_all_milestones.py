@@ -59,17 +59,3 @@ def test_hardening() -> None:
 def test_release_gate() -> None:
     assert release_ready({"e2e": True, "backup": True})
     assert not release_ready({"e2e": True, "backup": False})
- TLX_TEST_DATABASE_URL: ***localhost:5432/truthlens_ci
- pythonLocation: /opt/hostedtoolcache/Python/3.11.18/x64
- PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.11.18/x64/lib/pkgconfig
- Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.18/x64
- Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.18/x64
- Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.18/x64
- LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.11.18/x64/lib
- TLX_TEST_DATABASE_URL: ***localhost:5432/truthlens_ci
- pythonLocation: /opt/hostedtoolcache/Python/3.11.18/x64
- PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.11.18/x64/lib/pkgconfig
- Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.18/x64
- Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.18/x64
- Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.18/x64
- LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.11.18/x64/lib
