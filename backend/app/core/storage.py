@@ -11,6 +11,7 @@ import hashlib
 import os
 from collections.abc import Iterator
 from contextlib import suppress
+from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import BinaryIO, NamedTuple
 
@@ -127,12 +128,18 @@ def stream_to_quarantine(
                 os.unlink(tmp_name)
 
 
+def resolve_within_root(root: Path, relative_path: str) -> Path:
+    """Resolve a stored relative path and reject traversal outside the configured root."""
+    resolved_root = root.resolve()
+    candidate = (resolved_root / relative_path).resolve()
+    if not candidate.is_relative_to(resolved_root):
+        raise ValueError("Storage path escapes the configured root")
+    return candidate
+
+
 def open_object(*, settings: Settings, storage_path: str) -> BinaryIO:
     """Open an evidence object only from the configured evidence root."""
-    root = settings.evidence_root.resolve()
-    candidate = (root / storage_path).resolve()
-    if not candidate.is_relative_to(root):
-        raise ValueError("Storage path escapes the evidence root")
+    candidate = resolve_within_root(settings.evidence_root, storage_path)
     return candidate.open("rb")
 
 

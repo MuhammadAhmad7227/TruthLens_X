@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.orm import Session
 
 from app.core.errors import ValidationError
 from app.models.enums import CustodyEventType
@@ -66,7 +67,7 @@ def test_append_event_creates_genesis_record() -> None:
     session = FakeSession()
     evidence = _evidence()
     actor = _actor()
-        event = custody.append_event(
+    event = custody.append_event(
         cast(Session, session),
         actor=actor,
         case_id=evidence.case_id,
@@ -77,7 +78,7 @@ def test_append_event_creates_genesis_record() -> None:
 
     assert event.sequence == 1
     assert event.prev_hash == "0" * 64
-    assert event.record_hash == custody.record_digest(cast(CustodyEvent, event))
+    assert event.record_hash == custody.record_digest(event)
     assert session.added == [event]
 
 
@@ -175,10 +176,9 @@ def test_verify_chain_accepts_a_valid_record(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(custody, "authorize_case_access", lambda *args, **kwargs: None)
     monkeypatch.setattr(custody, "list_events", lambda *args, **kwargs: [event])
     valid, broken = custody.verify_chain(
-        FakeSession(), actor=actor, case_id=case_id
+        cast(Session, FakeSession()), actor=actor, case_id=case_id
     )
     assert valid
     assert broken is None
-
 
 # fmt: on

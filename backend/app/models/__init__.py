@@ -61,6 +61,8 @@ from app.models.identity import (
     UserRole,
     UserSession,
 )
+from app.models.location import Location
+from app.models.metadata import MetadataRecord
 from app.models.platform import (
     RETENTION_ACTIONS,
     RETENTION_SCOPES,
@@ -114,6 +116,8 @@ __all__ = [
     "IntegrityStatus",
     "JobStatus",
     "LimitationStatement",
+    "Location",
+    "MetadataRecord",
     "ModelStatus",
     "Notification",
     "Organisation",
