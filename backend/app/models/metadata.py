@@ -3,6 +3,7 @@
 The metadata table stores the complete extractor output plus a curated, stable normalised view.
 Raw evidence bytes are never stored here.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
