@@ -1,4 +1,5 @@
 """Normalised geographic metadata extracted from evidence."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -11,6 +12,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, UTCDateTime
+
 
 class Location(Base):
     __tablename__ = "locations"
@@ -41,5 +43,6 @@ class Location(Base):
         Index("ix_locations_evidence", "evidence_id"),
         Index("ix_locations_geohash", "geohash"),
     )
+
 
 __all__ = ["Location"]
