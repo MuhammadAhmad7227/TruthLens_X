@@ -1,4 +1,5 @@
 """M9-M21 advanced forensic, intelligence, reporting and assurance endpoints."""
+
 from __future__ import annotations
 
 from typing import Any
