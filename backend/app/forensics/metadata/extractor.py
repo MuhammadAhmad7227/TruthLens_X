@@ -3,6 +3,7 @@
 ExifTool is preferred when present. Fallbacks are deliberately conservative: they return only
 metadata that can be extracted without guessing and identify the extractor used.
 """
+
 from __future__ import annotations
 
 import json
@@ -10,7 +11,7 @@ import os
 import re
 import shutil
 import struct
-import subprocess  # noqa: S404  # nosec B404
+import subprocess  # nosec B404
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime
@@ -67,7 +68,11 @@ def _parse_exif_timestamp(value: str) -> dict[str, Any] | None:
     try:
         dt = datetime.fromisoformat(
             f"{year}-{month}-{day}T{hour}:{minute}:{second}"
-            + ((offset[:3] + ":" + offset[-2:]) if offset and len(offset) == OFFSET_WITH_COLON_LENGTH else (offset or ""))
+            + (
+                (offset[:3] + ":" + offset[-2:])
+                if offset and len(offset) == OFFSET_WITH_COLON_LENGTH
+                else (offset or "")
+            )
         )
     except ValueError:
         return None
@@ -252,7 +257,7 @@ class MetadataExtractor:
                 capture_output=True,
                 text=True,
                 timeout=self.settings.exiftool_timeout_seconds,
-                shell=False,  # noqa: S603  # nosec B603
+                shell=False,  # nosec B603
                 env={"PATH": os.environ.get("PATH", "")},
             )
             payload = json.loads(completed.stdout)
@@ -279,7 +284,7 @@ class MetadataExtractor:
             capture_output=True,
             text=True,
             timeout=10,
-            shell=False,  # noqa: S603  # nosec B603
+            shell=False,  # nosec B603
             env={"PATH": os.environ.get("PATH", "")},
         )
         return completed.stdout.strip() or "unknown"
@@ -306,7 +311,7 @@ class MetadataExtractor:
 
 def _jpeg_basic_exif(path: Path) -> dict[str, Any]:
     """Read a minimal TIFF/EXIF subset without third-party packages."""
-    data = path.read_bytes()[:4 * 1024 * 1024]
+    data = path.read_bytes()[: 4 * 1024 * 1024]
     marker = b"Exif\x00\x00"
     pos = data.find(marker)
     if pos < 0:
@@ -328,9 +333,7 @@ def _jpeg_basic_exif(path: Path) -> dict[str, Any]:
     return _read_ifd(data, tiff, tiff + ifd_offset, order, 0)
 
 
-def _read_ifd(
-    data: bytes, tiff: int, offset: int, order: str, depth: int
-) -> dict[str, Any]:
+def _read_ifd(data: bytes, tiff: int, offset: int, order: str, depth: int) -> dict[str, Any]:
     if depth > MAX_IFD_DEPTH or offset + 2 > len(data):
         return {}
     count = struct.unpack_from(order + "H", data, offset)[0]
