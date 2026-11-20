@@ -4,15 +4,20 @@ from __future__ import annotations
 
 from typing import Any
 
+import io
+
+try:
+    import pikepdf  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover - optional dependency
+    pikepdf = None  # type: ignore[assignment,misc]
+
 
 def inspect_pdf(data: bytes) -> dict[str, Any]:
     if not data.startswith(b"%PDF-"):
         return {"format": "unknown", "pages": None, "engine": "signature-only"}
     try:
-        import io
-
-        import pikepdf  # type: ignore[import-not-found]
-
+        if pikepdf is None:
+            raise ImportError
         with pikepdf.open(io.BytesIO(data)) as pdf:
             return {
                 "format": "pdf",
