@@ -1,4 +1,5 @@
 """M8 metadata extraction orchestration and persistence."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -107,9 +108,7 @@ def list_for_evidence(
     evidence_id: UUID,
 ) -> list[MetadataRecord]:
     item = _evidence(session, evidence_id)
-    authorize_case_access(
-        session, user=actor, case_id=item.case_id, capability="view_evidence"
-    )
+    authorize_case_access(session, user=actor, case_id=item.case_id, capability="view_evidence")
     return list(
         session.scalars(
             select(MetadataRecord)
@@ -142,7 +141,5 @@ def assert_case_access(
     item = _evidence(session, evidence_id)
     if item.case_id != case_id:
         raise NotFoundError()
-    authorize_case_access(
-        session, user=actor, case_id=case_id, capability=capability
-    )
+    authorize_case_access(session, user=actor, case_id=case_id, capability=capability)
     return item
