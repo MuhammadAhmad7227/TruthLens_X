@@ -5,23 +5,28 @@ from __future__ import annotations
 import hashlib
 import math
 
+VERY_HIGH_THRESHOLD = 0.98
+HIGH_THRESHOLD = 0.90
+MODERATE_THRESHOLD = 0.75
+LOW_THRESHOLD = 0.50
+
 
 def hamming_hex(a: str, b: str) -> int:
     if len(a) != len(b):
         raise ValueError("Hash lengths differ")
-    return sum((int(x, 16) ^ int(y, 16)).bit_count() for x, y in zip(a, b))
+    return sum((int(x, 16) ^ int(y, 16)).bit_count() for x, y in zip(a, b, strict=True))
 
 
 def band_for_score(score: float, method: str = "exact_hash") -> str:
     if method == "exact_hash":
         return "identical" if score == 0 else "unrelated"
-    if score >= 0.98:
+    if score >= VERY_HIGH_THRESHOLD:
         return "very_high"
-    if score >= 0.90:
+    if score >= HIGH_THRESHOLD:
         return "high"
-    if score >= 0.75:
+    if score >= MODERATE_THRESHOLD:
         return "moderate"
-    if score >= 0.50:
+    if score >= LOW_THRESHOLD:
         return "low"
     return "unrelated"
 
