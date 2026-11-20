@@ -1,0 +1,19 @@
+name: release-assurance
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+jobs:
+  assurance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release metadata
+        run: |
+          test -f docs/IMPLEMENTATION_ROADMAP.md
+          test -f docs/RUNBOOKS.md
+          test -f backend/app/security/controls.py
+          test -f frontend/src/components/forensics/ForensicsWorkbench.tsx
+      - name: Verify no accidental secret files
+        run: |
+          ! find . -maxdepth 3 -type f \( -name '.env' -o -name '*.pem' -o -name '*.key' \) | grep -v '.env.example'

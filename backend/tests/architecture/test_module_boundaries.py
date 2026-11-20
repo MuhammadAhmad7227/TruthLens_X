@@ -240,6 +240,18 @@ BOUNDARY_RULES: Final[tuple[BoundaryRule, ...]] = (
         ),
     ),
     _rule(
+        name="tasks never import the HTTP layer",
+        rule_number=9,
+        module_prefix="app.tasks",
+        forbidden=("app.api",),
+        reason=(
+            "§4.1 async workers execute business services outside the HTTP process. A task importing "
+            "routers would make queue execution depend on request wiring and create a second, unsafe "
+            "authorization path."
+        ),
+        source=BACKEND_ROOT,
+    ),
+    _rule(
         name="ai_services never imports the backend",
         rule_number=5,
         module_prefix="engines",

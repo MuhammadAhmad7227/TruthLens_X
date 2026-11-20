@@ -279,6 +279,11 @@ class IntegrityError(TruthLensError):
     log_with_traceback = True
 
 
+class ConflictError(DomainError):
+    error_code: ErrorCode = "CONFLICT"
+    title = "The requested operation conflicts with the current resource state"
+
+
 class InvalidStateTransitionError(DomainError):
     error_code: ErrorCode = "INVALID_STATE_TRANSITION"
     title = "That state transition is not permitted"
@@ -382,6 +387,7 @@ __all__ = [
     "AuthorisationError",
     "CapabilityDisabledError",
     "CaseClosedError",
+    "ConflictError",
     "DependencyUnavailableError",
     "DomainError",
     "EgressCategoryNotAllowedError",

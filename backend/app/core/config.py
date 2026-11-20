@@ -206,9 +206,27 @@ class Settings(BaseSettings):
 
     # ── 4. Redis / Celery ────────────────────────────────────────────────────
     redis_url: str | None = Field(default=None, alias="REDIS_URL")
-    #: ADR-0022: the Celery result backend is PostgreSQL, so Redis holds nothing durable.
+    celery_broker_url: str | None = Field(default=None, alias="CELERY_BROKER_URL")
     celery_result_backend: str | None = Field(default=None, alias="CELERY_RESULT_BACKEND")
+    celery_task_serializer: str = Field(default="json", alias="CELERY_TASK_SERIALIZER")
+    celery_accept_content: list[str] = Field(default_factory=lambda: ["json"], alias="CELERY_ACCEPT_CONTENT")
+    celery_task_acks_late: bool = Field(default=True, alias="CELERY_TASK_ACKS_LATE")
+    celery_worker_prefetch_multiplier: int = Field(default=4, ge=1, le=64, alias="CELERY_WORKER_PREFETCH_MULTIPLIER")
+    celery_task_soft_time_limit: int = Field(default=1800, ge=1, le=86400, alias="CELERY_TASK_SOFT_TIME_LIMIT")
+    celery_task_time_limit: int = Field(default=2400, ge=1, le=86400, alias="CELERY_TASK_TIME_LIMIT")
+    celery_task_default_retry_delay: int = Field(default=30, ge=1, le=3600, alias="CELERY_TASK_DEFAULT_RETRY_DELAY")
+    celery_task_max_retries: int = Field(default=3, ge=0, le=20, alias="CELERY_TASK_MAX_RETRIES")
+    celery_timezone: str = Field(default="UTC", alias="CELERY_TIMEZONE")
+    beat_schedule_enabled: bool = Field(default=True, alias="BEAT_SCHEDULE_ENABLED")
+    #: ADR-0022: the Celery result backend is PostgreSQL, so Redis holds nothing durable.
     celery_task_always_eager: bool = Field(default=False, alias="CELERY_TASK_ALWAYS_EAGER")
+
+    # ── 4b. Metadata extraction ──────────────────────────────────────────────
+    enable_exiftool: bool = Field(default=True, alias="ENABLE_EXIFTOOL")
+    exiftool_binary: str = Field(default="exiftool", alias="EXIFTOOL_BINARY")
+    exiftool_timeout_seconds: int = Field(
+        default=120, ge=1, le=900, alias="EXIFTOOL_TIMEOUT_SECONDS"
+    )
 
     # ── 5. Evidence storage ──────────────────────────────────────────────────
     #: ADR-0011: `filesystem` is the ONLY accepted value in v1. No S3 code ships.
@@ -247,21 +265,12 @@ class Settings(BaseSettings):
 
     # ── 7. Copyleft and egress flags (ADR-0001, ADR-0012) ────────────────────
     enable_ultralytics: bool = Field(default=False, alias="ENABLE_ULTRALYTICS")
-    enable_agpl_pymupdf: bool = Field(default=False, alias="ENABLE_AGPL_PYMuPDF")
-    #: ADR-0003: the one flag that defaults ON — subprocess-isolated and removable.
-    enable_exiftool: bool = Field(default=True, alias="ENABLE_EXIFTOOL")
-    exiftool_binary: Path | None = Field(default=None, alias="EXIFTOOL_BINARY")
-    exiftool_timeout_seconds: int = Field(
-        default=120, ge=5, le=3600, alias="EXIFTOOL_TIMEOUT_SECONDS"
-    )
+    enable_agpl_pymupdf: bool = Field(default=False, alias="ENABLE_AGPL_PyMuPDF")
     enable_poppler: bool = Field(default=False, alias="ENABLE_POPPLER")
     enable_online_geocoding: bool = Field(default=False, alias="ENABLE_ONLINE_GEOCODING")
-    #: ADR-0015: DISABLED by default; dataset licence unverified (finding L-7).
     gazetteer_enabled: bool = Field(default=False, alias="GAZETTEER_ENABLED")
     gazetteer_path: Path | None = Field(default=None, alias="GAZETTEER_PATH")
-    #: Mandatory if the gazetteer is enabled: every plausible candidate licence requires attribution.
     gazetteer_attribution: str = Field(default="", alias="GAZETTEER_ATTRIBUTION")
-    #: The master egress switch. Governs every per-feature flag (ADR-0012).
     enable_external_enrichment: bool = Field(default=False, alias="ENABLE_EXTERNAL_ENRICHMENT")
     enable_av_scan: bool = Field(default=False, alias="ENABLE_AV_SCAN")
     enable_av_updates: bool = Field(default=False, alias="ENABLE_AV_UPDATES")
