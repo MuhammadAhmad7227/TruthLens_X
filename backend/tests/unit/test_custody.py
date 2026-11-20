@@ -178,5 +178,3 @@ def test_verify_chain_accepts_a_valid_record(monkeypatch: pytest.MonkeyPatch) ->
     assert valid
     assert broken is None
 
-
-# fmt: on
