@@ -11,7 +11,6 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, UTCDateTime
-from app.models.enums import Reliability, native_enum
 
 class Location(Base):
     __tablename__ = "locations"
