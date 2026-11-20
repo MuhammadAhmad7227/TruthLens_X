@@ -1,13 +1,14 @@
 """M8 metadata extraction endpoints."""
 from __future__ import annotations
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Header, status
 
 from app.api.v1.auth_deps import CurrentPrincipal
 from app.api.v1.deps import SessionDep
 from app.api.v1.metadata_schemas import (
+    MetadataDiffResponse,
     MetadataExtractResponse,
     MetadataListResponse,
     MetadataRecordResponse,
@@ -20,7 +21,7 @@ router = APIRouter(prefix="/cases/{case_id}/evidence", tags=["metadata"])
 
 
 @router.post(
-    "/{evidence_id}/metadata/extract",
+    "/{evidence_id}/metadata:reextract",
     response_model=MetadataExtractResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
@@ -29,6 +30,7 @@ def request_metadata_extraction(
     evidence_id: UUID,
     principal: CurrentPrincipal,
     session: SessionDep,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> MetadataExtractResponse:
     metadata_service.assert_case_access(
         session,
@@ -47,7 +49,7 @@ def request_metadata_extraction(
         params={"schema_version": "1.0"},
         queue="analysis.cpu",
         priority=5,
-        idempotency_key=f"metadata-v1:{evidence_id}",
+        idempotency_key=idempotency_key or f"metadata-reextract:{evidence_id}:{uuid4()}",
     )
     return MetadataExtractResponse(
         job_id=job.id,
@@ -96,3 +98,36 @@ def latest_metadata(
         session, actor=principal.user, evidence_id=evidence_id
     )
     return MetadataRecordResponse.model_validate(record)
+
+
+@router.get(
+    "/{evidence_id}/metadata/diff",
+    response_model=MetadataDiffResponse,
+)
+def metadata_diff(
+    case_id: UUID,
+    evidence_id: UUID,
+    other: UUID,
+    principal: CurrentPrincipal,
+    session: SessionDep,
+) -> MetadataDiffResponse:
+    metadata_service.assert_case_access(
+        session, actor=principal.user, case_id=case_id, evidence_id=evidence_id
+    )
+    metadata_service.assert_case_access(
+        session, actor=principal.user, case_id=case_id, evidence_id=other
+    )
+    base = metadata_service.get_latest(session, actor=principal.user, evidence_id=evidence_id)
+    comparison = metadata_service.get_latest(session, actor=principal.user, evidence_id=other)
+    keys = set(base.normalised) | set(comparison.normalised)
+    changes = {
+        key: {"before": base.normalised.get(key), "after": comparison.normalised.get(key)}
+        for key in sorted(keys)
+        if base.normalised.get(key) != comparison.normalised.get(key)
+    }
+    return MetadataDiffResponse(
+        evidence_id=evidence_id,
+        base_id=base.id,
+        other_id=comparison.id,
+        changes=changes,
+    )
