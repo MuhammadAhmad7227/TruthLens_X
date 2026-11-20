@@ -20,6 +20,7 @@ from app.core.config import get_settings
 from app.db.session import get_session_factory
 from app.models.analysis import AnalysisJob
 from app.models.enums import JobStatus
+from app.services.metadata import extract_for_job
 from app.tasks.celery_app import celery_app
 
 
@@ -150,8 +151,6 @@ def execute_job(self: JobTask, job_id: str) -> None:
                 raise RuntimeError("DUPLICATE_ANALYSIS_IN_PROGRESS")
 
         if job.pipeline == "metadata.extract":
-            from app.services.metadata import extract_for_job
-
             extract_for_job(session, settings=get_settings(), job=job)
         elif not job.pipeline.startswith("maintenance."):
             raise RuntimeError(f"Unsupported pipeline: {job.pipeline}")
