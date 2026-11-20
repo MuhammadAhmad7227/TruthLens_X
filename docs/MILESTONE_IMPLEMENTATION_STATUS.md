@@ -25,3 +25,5 @@ repair. The next phase is the comprehensive fixing pass: formatting, strict typi
 migration correctness, integration tests, security gates, E2E, and runtime verification.
 
 All forensic results remain advisory and require human verification. Originals are not modified.
+
+Verification pass: backend lint/security findings from CI are being resolved before merge.
