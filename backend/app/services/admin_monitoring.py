@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+FAILED_JOB_ALERT_THRESHOLD = 10
+AUTH_DENIAL_ALERT_THRESHOLD = 20
+
 ALLOWED_SETTINGS = {
     "max_upload_bytes",
     "default_job_timeout",
@@ -27,9 +30,9 @@ def validate_setting(key: str, value: Any) -> Any:
 
 def alert_conditions(*, failed_jobs: int, auth_denials: int, integrity_failures: int) -> list[str]:
     alerts = []
-    if failed_jobs >= 10:
+    if failed_jobs >= FAILED_JOB_ALERT_THRESHOLD:
         alerts.append("job_failure_burst")
-    if auth_denials >= 20:
+    if auth_denials >= AUTH_DENIAL_ALERT_THRESHOLD:
         alerts.append("auth_burst")
     if integrity_failures > 0:
         alerts.append("integrity_mismatch")
