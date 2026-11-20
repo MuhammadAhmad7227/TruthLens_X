@@ -1,17 +1,18 @@
 from pathlib import Path
+from typing import Any
 
-from app.core.config import Settings
+from app.core.config import Environment, Settings
 from app.forensics.metadata.extractor import MetadataExtractor, _normalise
 
 
-def test_fallback_extraction_is_reproducible(monkeypatch, tmp_path: Path) -> None:
+def test_fallback_extraction_is_reproducible(monkeypatch: Any, tmp_path: Path) -> None:
     source = tmp_path / "sample.bin"
     source.write_bytes(b"truthlens")
     monkeypatch.setattr("app.forensics.metadata.extractor.shutil.which", lambda _: None)
 
     settings = Settings(
         testing=True,
-        tlx_env="test",
+        tlx_env=Environment.TEST,
         evidence_root=tmp_path / "evidence",
         derivatives_root=tmp_path / "derivatives",
         intake_root=tmp_path / "intake",
