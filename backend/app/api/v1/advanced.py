@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from typing import Any
-from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter
@@ -24,6 +23,11 @@ from app.services.authorization import authorize_case_access
 from app.services.comparison import cosine
 from app.services.graph_timeline import stable_layout
 from app.services.reports import build_report_text, manifest_hash
+
+COSINE_VERY_HIGH = 0.98
+COSINE_HIGH = 0.90
+COSINE_MODERATE = 0.75
+COSINE_LOW = 0.50
 
 router = APIRouter(tags=["advanced-forensics"])
 
@@ -99,13 +103,13 @@ def vector_compare(
         capability="create_comparison",
     )
     score = cosine(body.left, body.right)
-    if score >= 0.98:
+    if score >= COSINE_VERY_HIGH:
         band = "very_high"
-    elif score >= 0.90:
+    elif score >= COSINE_HIGH:
         band = "high"
-    elif score >= 0.75:
+    elif score >= COSINE_MODERATE:
         band = "moderate"
-    elif score >= 0.50:
+    elif score >= COSINE_LOW:
         band = "low"
     else:
         band = "unrelated"
